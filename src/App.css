@@ -19,10 +19,7 @@ body { font-family: system-ui, sans-serif; background: #0e0e12; color: #eee; ove
   background: #3b82f6; color: white; font-weight: 600; cursor: pointer;
 }
 #track-list { flex: 1; overflow-y: auto; list-style: none; padding: 0 8px; }
-#track-list li {
-  padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+
 #track-list li:hover { background: #22222c; }
 #track-list li.active { background: #3b82f6; }
 
@@ -42,3 +39,52 @@ body { font-family: system-ui, sans-serif; background: #0e0e12; color: #eee; ove
 #progress { flex: 1; accent-color: #3b82f6; }
 #volume { width: 100px; accent-color: #3b82f6; }
 #time-current, #time-total { font-variant-numeric: tabular-nums; font-size: 13px; color: #aaa; }
+
+#track-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#track-list li.empty {
+  color: #666;
+  cursor: default;
+  font-style: italic;
+}
+
+#track-list li .track-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#track-list li .track-status {
+  color: #3b82f6;
+  font-size: 11px;
+}
+
+#track-list li:hover {
+  background: #22222c;
+}
+
+#track-list li.active {
+  background: #3b82f6;
+}
+
+#track-list li.active .track-status {
+  color: #fff;
+}
+
+#play-pause:disabled,
+#progress:disabled,
+#volume:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

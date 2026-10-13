@@ -3,55 +3,64 @@ import { useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Vinyl } from './components/Vinyl';
-import { useAudioPlayer } from './hooks/useAudioPlayer';
+import { useAudioEngine } from './hooks/useAudioEngine';
 import { getCoverArt } from './utils/coverArt';
 import './App.css';
 
 function formatTime(seconds: number) {
-  if (!isFinite(seconds)) return '0:00';
+  if (!isFinite(seconds) || seconds < 0) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function App() {
-
-  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
-  const [coverUrl, setCoverUrl] = useState<string | null>(null);
-  const [loadingCover, setLoadingCover] = useState(false);
-
-  const player = useAudioPlayer();
+  const engine = useAudioEngine();
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedTrack =
+    engine.tracks.find((t) => t.id === selectedTrackId) ?? null;
 
   const handleOpenFile = () => fileInputRef.current?.click();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = ''; // permite volver a elegir el mismo archivo
 
-    setCurrentFileName(file.name);
-    setCoverUrl(null);
-    await player.loadFile(file);
+    // 1. Añadir pista (queda cargada pero en pausa)
+    const id = await engine.addTrack(file, null);
+    setSelectedTrackId(id);
 
-    // Buscar carátula en segundo plano
-    setLoadingCover(true);
+    // 2. Reproducir automáticamente y buscar carátula en paralelo
+    engine.playTrack(id);
+
     try {
       const { coverUrl } = await getCoverArt(file);
-      setCoverUrl(coverUrl);
-    } finally {
-      setLoadingCover(false);
+      if (coverUrl) engine.setTrackCover(id, coverUrl);
+    } catch (err) {
+      console.warn('No se pudo obtener la carátula:', err);
     }
   };
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const t = (Number(e.target.value) / 1000) * player.duration;
-    player.seek(t);
+    if (!selectedTrack) return;
+    const t = (Number(e.target.value) / 1000) * selectedTrack.duration;
+    engine.seekTrack(selectedTrack.id, t);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedTrack) return;
+    engine.setTrackVolume(selectedTrack.id, Number(e.target.value));
   };
 
   return (
     <div id="app">
       <aside id="sidebar">
-        <button id="open-folder" onClick={handleOpenFile}>📁 Abrir archivo</button>
+        <button id="open-folder" onClick={handleOpenFile}>
+          📁 Abrir archivo
+        </button>
         <input
           ref={fileInputRef}
           type="file"
@@ -59,25 +68,43 @@ function App() {
           style={{ display: 'none' }}
           onChange={handleFileChange}
         />
+
         <ul id="track-list">
-          {currentFileName ? (
-            <li className="active">
-              {currentFileName}
-              {loadingCover && <span style={{ marginLeft: 6, opacity: 0.6 }}>· buscando carátula…</span>}
-            </li>
-          ) : (
-            <li style={{ opacity: 0.5, cursor: 'default' }}>Sin canción cargada</li>
+          {engine.tracks.length === 0 && (
+            <li className="empty">Sin canciones cargadas</li>
           )}
+          {engine.tracks.map((track) => (
+            <li
+              key={track.id}
+              className={track.id === selectedTrackId ? 'active' : ''}
+              onClick={() => setSelectedTrackId(track.id)}
+              title={track.name}
+            >
+              <span className="track-name">{track.name}</span>
+              {track.isPlaying && (
+                <span className="track-status" aria-label="sonando">
+                  ▶
+                </span>
+              )}
+            </li>
+          ))}
         </ul>
       </aside>
 
       <main id="main">
         <section id="viewport">
-          <Canvas camera={{ position: [0, 12, 15], fov: 45 }}>
+          <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
             <ambientLight intensity={0.5} />
             <directionalLight position={[5, 10, 6]} intensity={1.5} />
-            <directionalLight position={[-6, 5, -7]} intensity={0.6} color="#6688ff" />
-            <Vinyl isPlaying={player.isPlaying} coverUrl={coverUrl} />
+            <directionalLight
+              position={[-6, 5, -7]}
+              intensity={0.6}
+              color="#6688ff"
+            />
+            <Vinyl
+              isPlaying={selectedTrack?.isPlaying ?? false}
+              coverUrl={selectedTrack?.coverUrl ?? null}
+            />
             <OrbitControls
               enableDamping
               dampingFactor={0.08}
@@ -96,27 +123,41 @@ function App() {
         </section>
 
         <footer id="controls">
-          <button id="play-pause" onClick={player.toggle}>
-            {player.isPlaying ? '⏸' : '▶'}
+          <button
+            id="play-pause"
+            disabled={!selectedTrack}
+            onClick={() => selectedTrack && engine.toggleTrack(selectedTrack.id)}
+          >
+            {selectedTrack?.isPlaying ? '⏸' : '▶'}
           </button>
-          <span id="time-current">{formatTime(player.currentTime)}</span>
+          <span id="time-current">
+            {formatTime(selectedTrack?.currentTime ?? 0)}
+          </span>
           <input
             type="range"
             id="progress"
             min="0"
             max="1000"
-            value={player.duration ? (player.currentTime / player.duration) * 1000 : 0}
+            disabled={!selectedTrack}
+            value={
+              selectedTrack?.duration
+                ? (selectedTrack.currentTime / selectedTrack.duration) * 1000
+                : 0
+            }
             onChange={handleProgressChange}
           />
-          <span id="time-total">{formatTime(player.duration)}</span>
+          <span id="time-total">
+            {formatTime(selectedTrack?.duration ?? 0)}
+          </span>
           <input
             type="range"
             id="volume"
             min="0"
             max="1"
             step="0.01"
-            value={player.volume}
-            onChange={(e) => player.setVolume(Number(e.target.value))}
+            disabled={!selectedTrack}
+            value={selectedTrack?.volume ?? 0.8}
+            onChange={handleVolumeChange}
           />
         </footer>
       </main>
