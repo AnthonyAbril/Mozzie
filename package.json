@@ -1,10 +1,10 @@
 {
   "name": "react-mui-three-electron-template",
   "version": "0.1.0",
-  "main": "dist-electron/electron/main/index.js",
+  "main": "electron/main.cjs",
   "license": "Unlicense",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"vite --port 5555\" \"wait-on http://localhost:5555 && electron .\"",
     "build": "npm run build-prepare && electron-builder -p never",
     "build-win": "npm run build-prepare && electron-builder -p never -w",
     "build-mac": "npm run build-prepare && electron-builder -p never -m",
@@ -35,6 +35,7 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^5.18.0",
     "@mui/material": "^5.18.0",
+    "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -54,6 +55,7 @@
     "@typescript-eslint/parser": "^8.38.0",
     "@typescript-eslint/utils": "^8.38.0",
     "@vitejs/plugin-react": "^1.3.2",
+    "concurrently": "^10.0.6",
     "dotenv": "^16.6.1",
     "electron": "^37.2.4",
     "electron-builder": "^25.1.8",
@@ -65,7 +67,7 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^6.3.5",
-    "vite-electron-plugin": "^0.8.3"
+    "wait-on": "^9.5.1"
   },
   "debug": {
     "env": {
