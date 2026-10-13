@@ -1,12 +1,33 @@
-import { useRef } from 'react';
+import { useRef, Suspense } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface VinylProps {
   isPlaying?: boolean;
+  coverUrl?: string | null;
 }
 
-export function Vinyl({ isPlaying = false }: VinylProps) {
+function LabelWithCover({ url }: { url: string }) {
+  const texture = useTexture(url);
+  return (
+    <mesh position={[0, 0.051, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[1.5, 64]} />
+      <meshBasicMaterial map={texture} toneMapped={false} />
+    </mesh>
+  );
+}
+
+function LabelPlaceholder() {
+  return (
+    <mesh position={[0, 0.051, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[1.5, 64]} />
+      <meshStandardMaterial color="#ffffff" roughness={0.8} />
+    </mesh>
+  );
+}
+
+export function Vinyl({ isPlaying = false, coverUrl = null }: VinylProps) {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame((_, delta) => {
@@ -17,31 +38,19 @@ export function Vinyl({ isPlaying = false }: VinylProps) {
 
   return (
     <group ref={groupRef}>
-      {/* Cuerpo del vinilo */}
       <mesh>
         <cylinderGeometry args={[5, 5, 0.1, 64]} />
         <meshStandardMaterial color="#111111" roughness={0.4} metalness={0.2} />
       </mesh>
 
-      {/* Etiqueta central */}
-      <mesh position={[0, 0.051, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[1.5, 32]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.8} />
-      </mesh>
+      {coverUrl ? (
+        <Suspense fallback={<LabelPlaceholder />}>
+          <LabelWithCover url={coverUrl} />
+        </Suspense>
+      ) : (
+        <LabelPlaceholder />
+      )}
 
-      {/* MARCADOR: pequeño punto rojo en la etiqueta para ver el giro */}
-      <mesh position={[1.1, 0.052, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.12, 16]} />
-        <meshBasicMaterial color="#ff3b3b" />
-      </mesh>
-
-      {/* Otro marcador en el borde exterior del vinilo */}
-      <mesh position={[4.4, 0.052, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.15, 16]} />
-        <meshBasicMaterial color="#3b82f6" />
-      </mesh>
-
-      {/* Eje central (no gira visualmente pero da igual) */}
       <mesh position={[0, 0.1, 0]}>
         <cylinderGeometry args={[0.08, 0.08, 0.2, 16]} />
         <meshStandardMaterial color="#cccccc" metalness={0.9} roughness={0.1} />

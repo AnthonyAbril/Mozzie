@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Vinyl } from './components/Vinyl';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
+import { getCoverArt } from './utils/coverArt';
 import './App.css';
 
 function formatTime(seconds: number) {
@@ -14,14 +15,32 @@ function formatTime(seconds: number) {
 }
 
 function App() {
+
+  const [currentFileName, setCurrentFileName] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [loadingCover, setLoadingCover] = useState(false);
+
   const player = useAudioPlayer();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenFile = () => fileInputRef.current?.click();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) player.loadFile(file);
+    if (!file) return;
+
+    setCurrentFileName(file.name);
+    setCoverUrl(null);
+    await player.loadFile(file);
+
+    // Buscar carátula en segundo plano
+    setLoadingCover(true);
+    try {
+      const { coverUrl } = await getCoverArt(file);
+      setCoverUrl(coverUrl);
+    } finally {
+      setLoadingCover(false);
+    }
   };
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,7 +60,14 @@ function App() {
           onChange={handleFileChange}
         />
         <ul id="track-list">
-          <li className="active">Canción de ejemplo.mp3</li>
+          {currentFileName ? (
+            <li className="active">
+              {currentFileName}
+              {loadingCover && <span style={{ marginLeft: 6, opacity: 0.6 }}>· buscando carátula…</span>}
+            </li>
+          ) : (
+            <li style={{ opacity: 0.5, cursor: 'default' }}>Sin canción cargada</li>
+          )}
         </ul>
       </aside>
 
@@ -51,7 +77,7 @@ function App() {
             <ambientLight intensity={0.5} />
             <directionalLight position={[5, 10, 6]} intensity={1.5} />
             <directionalLight position={[-6, 5, -7]} intensity={0.6} color="#6688ff" />
-            <Vinyl isPlaying={player.isPlaying} />
+            <Vinyl isPlaying={player.isPlaying} coverUrl={coverUrl} />
             <OrbitControls
               enableDamping
               dampingFactor={0.08}
