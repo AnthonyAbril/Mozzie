@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "BlueGlassBlock.better-json5",
+    "dbaeumer.vscode-eslint",
+    "fabiospampinato.vscode-highlight",
+    "MylesMurphy.prettify-ts",
+    "yoavbls.pretty-ts-errors",
+  ]
+}
