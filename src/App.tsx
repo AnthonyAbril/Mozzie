@@ -1,28 +1,27 @@
-import * as THREE from 'three';
-import { useRef, useState, useCallback, useMemo, useEffect, memo } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import { ScratchableVinyl } from './components/ScratchableVinyl';
-import { useAudioEngine, type Track } from './hooks/useAudioEngine';
-import { getCoverArt } from './utils/coverArt';
+import * as THREE from "three";
+import { useRef, useState, useCallback, useMemo, useEffect, memo } from "react";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import { ScratchableVinyl } from "./components/ScratchableVinyl";
+import { useAudioEngine, type Track } from "./hooks/useAudioEngine";
+import { getCoverArt } from "./utils/coverArt";
 
-import { useTheme } from './hooks/useTheme';
-import { extractPaletteFromImage } from './utils/colorExtract';
-import { CustomizePanel } from './components/CustomizePanel';
-import { useAnimatedTheme } from './hooks/useAnimatedTheme';
+import { useTheme } from "./hooks/useTheme";
+import { extractPaletteFromImage } from "./utils/colorExtract";
+import { CustomizePanel } from "./components/CustomizePanel";
+import { useAnimatedTheme } from "./hooks/useAnimatedTheme";
 
-import { Reorder } from 'framer-motion';
+import { Reorder } from "framer-motion";
 
-
-import './App.css';
+import "./App.css";
 
 const RPM_BASE = 33.333;
 
 function formatTime(seconds: number) {
-  if (!isFinite(seconds) || seconds < 0) return '0:00';
+  if (!isFinite(seconds) || seconds < 0) return "0:00";
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 interface TrackItemProps {
@@ -30,8 +29,8 @@ interface TrackItemProps {
   name: string;
   isPlaying: boolean;
   isSelected: boolean;
-  onSelect: (id: string) => void;    // ← recibe id
-  onToggle: (id: string) => void;    // ← recibe id
+  onSelect: (id: string) => void; // ← recibe id
+  onToggle: (id: string) => void; // ← recibe id
 }
 
 const TrackItem = memo(function TrackItem({
@@ -45,27 +44,27 @@ const TrackItem = memo(function TrackItem({
   return (
     <Reorder.Item
       value={id}
-      className={`track-item ${isSelected ? 'active' : ''}`}
+      className={`track-item ${isSelected ? "active" : ""}`}
       onClick={() => onSelect(id)}
       title={name}
       whileDrag={{
         scale: 1.03,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
-        cursor: 'grabbing',
+        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+        cursor: "grabbing",
         zIndex: 10,
       }}
     >
       <span className="track-name">{name}</span>
       <button
-        className={`track-status-btn ${isPlaying ? 'playing' : 'paused'}`}
+        className={`track-status-btn ${isPlaying ? "playing" : "paused"}`}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           onToggle(id);
         }}
-        aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+        aria-label={isPlaying ? "Pausar" : "Reproducir"}
       >
-        {isPlaying ? '▶' : '⏸'}
+        {isPlaying ? "▶" : "⏸"}
       </button>
     </Reorder.Item>
   );
@@ -77,19 +76,19 @@ function App() {
     addTrack,
     toggleTrack,
     playTrack,
-    pauseTrack,       // ← asegúrate de que está
+    pauseTrack, // ← asegúrate de que está
     seekTrack,
     setTrackRate,
     setTrackBaseRateSmooth,
-    setTrackDirection,         // ← nuevo
+    setTrackDirection, // ← nuevo
     setTrackEQ,
     setTrackPan,
     setTrackReverb,
     setTrackVolume,
     setTrackCover,
-    setTrackExtractedColors,      // ← nuevo
-    setTrackThemeMode,            // ← nuevo
-    setTrackCustomThemeColors,    // ← nuevo
+    setTrackExtractedColors, // ← nuevo
+    setTrackThemeMode, // ← nuevo
+    setTrackCustomThemeColors, // ← nuevo
     reorderTracks,
     beginScratch,
     endScratch,
@@ -99,7 +98,7 @@ function App() {
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
   const [editingRpm, setEditingRpm] = useState(false);
-  const [rpmDraft, setRpmDraft] = useState('');
+  const [rpmDraft, setRpmDraft] = useState("");
 
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +117,7 @@ function App() {
   const effectiveTheme = useMemo(() => {
     if (globalTheme.discThemeMode && selectedTrack) {
       if (
-        selectedTrack.themeMode === 'custom' &&
+        selectedTrack.themeMode === "custom" &&
         selectedTrack.customThemeColors
       ) {
         return {
@@ -163,13 +162,15 @@ function App() {
         const palette = await extractPaletteFromImage(
           track.coverUrl,
           globalTheme.satBoost,
-          globalTheme.brightness   // ← nuevo
+          globalTheme.brightness, // ← nuevo
         );
         if (cancelled) return;
         setTrackExtractedColors(track.id, palette);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // Solo re-extrae cuando el boost cambia
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalTheme.satBoost, globalTheme.brightness]);
@@ -179,7 +180,7 @@ function App() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    e.target.value = '';
+    e.target.value = "";
 
     const id = await addTrack(file, null);
     setSelectedTrackId(id);
@@ -192,12 +193,12 @@ function App() {
         const palette = await extractPaletteFromImage(
           coverUrl,
           globalTheme.satBoost,
-          globalTheme.brightness   // ← nuevo
+          globalTheme.brightness, // ← nuevo
         );
         setTrackExtractedColors(id, palette);
       }
     } catch (err) {
-      console.warn('Carátula no disponible:', err);
+      console.warn("Carátula no disponible:", err);
     }
   };
 
@@ -233,7 +234,7 @@ function App() {
   const commitEditRpm = () => {
     setEditingRpm(false);
     if (!selectedTrackId) return;
-    const parsed = parseFloat(rpmDraft.replace(',', '.'));
+    const parsed = parseFloat(rpmDraft.replace(",", "."));
     if (isNaN(parsed)) return;
     const clamped = Math.max(8, Math.min(100, parsed));
     setTrackBaseRateSmooth(selectedTrackId, clamped / RPM_BASE, 700);
@@ -245,11 +246,11 @@ function App() {
   };
 
   const handleEqChange =
-    (band: 'low' | 'mid' | 'high') =>
+    (band: "low" | "mid" | "high") =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!selectedTrackId) return;
       setTrackEQ(selectedTrackId, band, Number(e.target.value));
-  };
+    };
 
   const handlePanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedTrackId) return;
@@ -263,18 +264,18 @@ function App() {
 
   /** Formatea el pan: L50 / C / R50 */
   const formatPan = (v: number) => {
-    if (Math.abs(v) < 0.02) return 'C';
-      const side = v < 0 ? 'L' : 'R';
-      return `${side}${Math.round(Math.abs(v) * 100)}`;
-    };
+    if (Math.abs(v) < 0.02) return "C";
+    const side = v < 0 ? "L" : "R";
+    return `${side}${Math.round(Math.abs(v) * 100)}`;
+  };
 
-    const handleSwipe = useCallback(
-    (direction: 'left' | 'right') => {
+  const handleSwipe = useCallback(
+    (direction: "left" | "right") => {
       if (!selectedTrackId || tracks.length === 0) return;
       const idx = tracks.findIndex((t) => t.id === selectedTrackId);
       if (idx < 0) return;
       const newIdx =
-        direction === 'right'
+        direction === "right"
           ? (idx - 1 + tracks.length) % tracks.length
           : (idx + 1) % tracks.length;
       if (newIdx === idx) return;
@@ -290,7 +291,13 @@ function App() {
       }
       setSelectedTrackId(newTrack.id);
     },
-    [tracks, selectedTrackId, globalTheme.singlePlayback, pauseTrack, playTrack]
+    [
+      tracks,
+      selectedTrackId,
+      globalTheme.singlePlayback,
+      pauseTrack,
+      playTrack,
+    ],
   );
 
   const playExclusive = useCallback(
@@ -302,7 +309,7 @@ function App() {
       }
       playTrack(id);
     },
-    [globalTheme.singlePlayback, tracks, pauseTrack, playTrack]
+    [globalTheme.singlePlayback, tracks, pauseTrack, playTrack],
   );
 
   // -------- Scratch --------
@@ -314,12 +321,11 @@ function App() {
     }
   }, [selectedTrackId, setTrackRate, beginScratch]);
 
-
   const onScratchRate = useCallback(
     (rate: number) => {
       if (selectedTrackId) setTrackRate(selectedTrackId, rate);
     },
-    [selectedTrackId, setTrackRate]
+    [selectedTrackId, setTrackRate],
   );
 
   const onScratchEnd = useCallback(() => {
@@ -333,7 +339,8 @@ function App() {
     const dur = 80;
     const tick = () => {
       const t = Math.min((performance.now() - start) / dur, 1);
-      const rate = (dir > 0 ? 0.001 : -0.001) + (target - (dir > 0 ? 0.001 : -0.001)) * t;
+      const rate =
+        (dir > 0 ? 0.001 : -0.001) + (target - (dir > 0 ? 0.001 : -0.001)) * t;
       setTrackRate(id, rate);
       if (t < 1) requestAnimationFrame(tick);
     };
@@ -349,23 +356,33 @@ function App() {
     singlePlayback: globalTheme.singlePlayback,
   };
 
-  const handleSelectTrack = useCallback((id: string) => {
-    const s = stateRef.current;
-    if (s.singlePlayback && s.selectedTrack?.isPlaying && id !== s.selectedTrackId) {
-      // Para todas y arranca la nueva
-      s.tracks.forEach((t: Track) => {
-        if (t.id !== id && t.isPlaying) pauseTrack(t.id);
-      });
-      playTrack(id);
-    }
-    setSelectedTrackId(id);
-  }, [pauseTrack, playTrack]); // ambas son estables en el hook
+  const handleSelectTrack = useCallback(
+    (id: string) => {
+      const s = stateRef.current;
+      if (
+        s.singlePlayback &&
+        s.selectedTrack?.isPlaying &&
+        id !== s.selectedTrackId
+      ) {
+        // Para todas y arranca la nueva
+        s.tracks.forEach((t: Track) => {
+          if (t.id !== id && t.isPlaying) pauseTrack(t.id);
+        });
+        playTrack(id);
+      }
+      setSelectedTrackId(id);
+    },
+    [pauseTrack, playTrack],
+  ); // ambas son estables en el hook
 
-  const handleToggleTrack = useCallback((id: string) => {
-    toggleTrack(id);
-  }, [toggleTrack]);
+  const handleToggleTrack = useCallback(
+    (id: string) => {
+      toggleTrack(id);
+    },
+    [toggleTrack],
+  );
 
-    return (
+  return (
     <>
       <div id="app">
         <aside id="sidebar">
@@ -376,7 +393,7 @@ function App() {
             ref={fileInputRef}
             type="file"
             accept="audio/*"
-            style={{ display: 'none' }}
+            style={{ display: "none" }}
             onChange={handleFileChange}
           />
           <Reorder.Group
@@ -400,7 +417,10 @@ function App() {
               />
             ))}
           </Reorder.Group>
-          <button className="customize-btn" onClick={() => setCustomizeOpen(true)}>
+          <button
+            className="customize-btn"
+            onClick={() => setCustomizeOpen(true)}
+          >
             ⚙️ Personalización
           </button>
         </aside>
@@ -452,7 +472,7 @@ function App() {
               disabled={!selectedTrack}
               onClick={() => selectedTrack && toggleTrack(selectedTrack.id)}
             >
-              {selectedTrack?.isPlaying ? '⏸' : '▶'}
+              {selectedTrack?.isPlaying ? "⏸" : "▶"}
             </button>
             <span id="time-current">
               {formatTime(selectedTrack?.currentTime ?? 0)}
@@ -490,6 +510,52 @@ function App() {
       {/* ── Rail derecho desplegable ── */}
       <div id="right-rail">
         <aside id="right-sidebar">
+             <div className="section">
+  <div className="section-title">Velocidad</div>
+
+  {editingRpm ? (
+    <input
+      type="text"
+      className="rpm-input"
+      value={rpmDraft}
+      onChange={(e) => setRpmDraft(e.target.value)}
+      onBlur={commitEditRpm}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commitEditRpm();
+        if (e.key === 'Escape') setEditingRpm(false);
+      }}
+      autoFocus
+      disabled={!selectedTrack}
+    />
+  ) : (
+    <div
+      className="rpm-value"
+      onClick={startEditRpm}
+      title="Click para escribir un valor exacto"
+    >
+      {rpm.toFixed(2)}
+    </div>
+  )}
+
+  <div
+    className="rpm-unit"
+    onClick={resetRpm}
+    title="Click para volver a 33.33 RPM"
+  >
+    RPM
+  </div>
+
+  <input
+    type="range"
+    min="8"
+    max="100"
+    step="0.1"
+    value={rpm}
+    disabled={!selectedTrack}
+    onChange={handleRpmChange}
+  />
+</div> 
+
           <div className="section">
             <div className="section-title">Balance</div>
 
@@ -514,11 +580,11 @@ function App() {
             <div className="section-title">Dirección</div>
 
             <button
-              className={`direction-toggle ${selectedTrack?.direction === -1 ? 'reverse' : ''}`}
+              className={`direction-toggle ${selectedTrack?.direction === -1 ? "reverse" : ""}`}
               onClick={handleDirectionToggle}
               disabled={!selectedTrack}
             >
-              {selectedTrack?.direction === -1 ? '⏪ Reproduciendo hacia atrás' : '⏩ Reproduciendo hacia adelante'}
+              {selectedTrack?.direction === -1 ? "◀ Retroceder" : "Avanzar ▶"}
             </button>
           </div>
 
@@ -548,58 +614,61 @@ function App() {
 
               <div className="theme-mode-toggle">
                 <button
-                  className={selectedTrack.themeMode === 'disc' ? 'active' : ''}
-                  onClick={() => setTrackThemeMode(selectedTrack.id, 'disc')}
+                  className={selectedTrack.themeMode === "disc" ? "active" : ""}
+                  onClick={() => setTrackThemeMode(selectedTrack.id, "disc")}
                   disabled={!selectedTrack.themeColors}
                   title={
                     selectedTrack.themeColors
-                      ? 'Colores extraídos de la portada'
-                      : 'Esperando carátula…'
+                      ? "Colores extraídos de la portada"
+                      : "Esperando carátula…"
                   }
                 >
                   Disco
                 </button>
                 <button
-                  className={selectedTrack.themeMode === 'custom' ? 'active' : ''}
-                  onClick={() => setTrackThemeMode(selectedTrack.id, 'custom')}
+                  className={
+                    selectedTrack.themeMode === "custom" ? "active" : ""
+                  }
+                  onClick={() => setTrackThemeMode(selectedTrack.id, "custom")}
                 >
                   Personalizado
                 </button>
               </div>
 
-              {selectedTrack.themeMode === 'disc' && selectedTrack.themeColors && (
-                <div className="theme-swatches">
-                  <div
-                    className="swatch"
-                    style={{ background: selectedTrack.themeColors[0] }}
-                    title={selectedTrack.themeColors[0]}
-                  />
-                  <div
-                    className="swatch"
-                    style={{ background: selectedTrack.themeColors[1] }}
-                    title={selectedTrack.themeColors[1]}
-                  />
-                </div>
-              )}
+              {selectedTrack.themeMode === "disc" &&
+                selectedTrack.themeColors && (
+                  <div className="theme-swatches">
+                    <div
+                      className="swatch"
+                      style={{ background: selectedTrack.themeColors[0] }}
+                      title={selectedTrack.themeColors[0]}
+                    />
+                    <div
+                      className="swatch"
+                      style={{ background: selectedTrack.themeColors[1] }}
+                      title={selectedTrack.themeColors[1]}
+                    />
+                  </div>
+                )}
 
-              {selectedTrack.themeMode === 'custom' && (
+              {selectedTrack.themeMode === "custom" && (
                 <div className="custom-colors">
                   <input
                     type="color"
-                    value={selectedTrack.customThemeColors?.[0] ?? '#0e0e12'}
+                    value={selectedTrack.customThemeColors?.[0] ?? "#0e0e12"}
                     onChange={(e) =>
                       setTrackCustomThemeColors(selectedTrack.id, [
                         e.target.value,
-                        selectedTrack.customThemeColors?.[1] ?? '#15151b',
+                        selectedTrack.customThemeColors?.[1] ?? "#15151b",
                       ])
                     }
                   />
                   <input
                     type="color"
-                    value={selectedTrack.customThemeColors?.[1] ?? '#15151b'}
+                    value={selectedTrack.customThemeColors?.[1] ?? "#15151b"}
                     onChange={(e) =>
                       setTrackCustomThemeColors(selectedTrack.id, [
-                        selectedTrack.customThemeColors?.[0] ?? '#0e0e12',
+                        selectedTrack.customThemeColors?.[0] ?? "#0e0e12",
                         e.target.value,
                       ])
                     }
@@ -616,7 +685,7 @@ function App() {
               <div className="slider-label">
                 <span>Bajos</span>
                 <span className="value">
-                  {eqLow > 0 ? '+' : ''}
+                  {eqLow > 0 ? "+" : ""}
                   {eqLow.toFixed(1)} dB
                 </span>
               </div>
@@ -627,7 +696,7 @@ function App() {
                 step="0.5"
                 value={eqLow}
                 disabled={!selectedTrack}
-                onChange={handleEqChange('low')}
+                onChange={handleEqChange("low")}
               />
             </div>
 
@@ -635,7 +704,7 @@ function App() {
               <div className="slider-label">
                 <span>Medios</span>
                 <span className="value">
-                  {eqMid > 0 ? '+' : ''}
+                  {eqMid > 0 ? "+" : ""}
                   {eqMid.toFixed(1)} dB
                 </span>
               </div>
@@ -646,7 +715,7 @@ function App() {
                 step="0.5"
                 value={eqMid}
                 disabled={!selectedTrack}
-                onChange={handleEqChange('mid')}
+                onChange={handleEqChange("mid")}
               />
             </div>
 
@@ -654,7 +723,7 @@ function App() {
               <div className="slider-label">
                 <span>Agudos</span>
                 <span className="value">
-                  {eqHigh > 0 ? '+' : ''}
+                  {eqHigh > 0 ? "+" : ""}
                   {eqHigh.toFixed(1)} dB
                 </span>
               </div>
@@ -665,7 +734,7 @@ function App() {
                 step="0.5"
                 value={eqHigh}
                 disabled={!selectedTrack}
-                onChange={handleEqChange('high')}
+                onChange={handleEqChange("high")}
               />
             </div>
           </div>

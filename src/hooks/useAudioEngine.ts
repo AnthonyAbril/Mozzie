@@ -767,6 +767,7 @@ export function useAudioEngine() {
     setTrackRate,
     setTrackBaseRate,
     setTrackBaseRateSmooth,
+    setTrackDirection,      // ← AÑADE ESTA LÍNEA
     setTrackEQ,
     setTrackPan,
     setTrackReverb,
