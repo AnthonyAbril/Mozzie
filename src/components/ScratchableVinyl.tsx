@@ -3,6 +3,30 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 
+export function ResponsiveCamera({ baseFov = 45, baseAspect = 1.5 }: { baseFov?: number; baseAspect?: number }) {
+  const { camera, size } = useThree();
+
+  useEffect(() => {
+    const persp = camera as THREE.PerspectiveCamera;
+    const aspect = size.width / size.height;
+
+    if (aspect < baseAspect) {
+      // Conserva el mismo campo horizontal que tendría a baseAspect,
+      // subiendo el FOV vertical para compensar.
+      const halfBaseFov = (baseFov * Math.PI) / 180 / 2;
+      const hFovHalf = Math.atan(Math.tan(halfBaseFov) * baseAspect);
+      const newVFovHalf = Math.atan(Math.tan(hFovHalf) / aspect);
+      const newFov = (newVFovHalf * 2 * 180) / Math.PI;
+      persp.fov = Math.min(newFov, 85);
+    } else {
+      persp.fov = baseFov;
+    }
+    persp.updateProjectionMatrix();
+  }, [camera, size.width, size.height, baseFov, baseAspect]);
+
+  return null;
+}
+
 interface Props {
   isPlaying: boolean;
   coverUrl: string | null;

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { ScratchableVinyl } from "./components/ScratchableVinyl";
+import { ScratchableVinyl, ResponsiveCamera } from './components/ScratchableVinyl';
 import { useAudioEngine, type Track } from "./hooks/useAudioEngine";
 import { getCoverArt } from "./utils/coverArt";
 
@@ -459,6 +459,7 @@ function App() {
         <main id="main">
           <section id="viewport">
             <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
+              <ResponsiveCamera baseFov={45} baseAspect={1.5} />
               <color attach="background" args={[animatedTheme.bg1]} />
               <ambientLight intensity={0.55} />
               <directionalLight position={[5, 10, 6]} intensity={1.4} />
