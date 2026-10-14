@@ -11,7 +11,9 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-
+  
+  win.webContents.on('context-menu', (e) => e.preventDefault());
+  
   if (!app.isPackaged) {
     win.loadURL("http://localhost:5555");
     win.webContents.openDevTools({ mode: "detach" });
@@ -21,6 +23,7 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
