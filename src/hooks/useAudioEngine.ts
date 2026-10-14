@@ -14,6 +14,7 @@ export interface Track {
   isPlaying: boolean;
   volume: number;
   baseRate: number;
+  direction: 1 | -1; // ← nuevo
   eq: { low: number; mid: number; high: number };
   pan: number;
   reverb: number;
@@ -39,6 +40,7 @@ interface TrackInternal {
   ctxTimeAtLastUpdate: number;
   currentRate: number;
   baseRate: number;
+  direction: 1 | -1; // ← nuevo
   isScratching: boolean;
 }
 
@@ -263,6 +265,7 @@ export function useAudioEngine() {
         ctxTimeAtLastUpdate: ctx.currentTime,
         currentRate: 1,
         baseRate: 1,
+        direction: 1,
         isScratching: false,
       });
 
@@ -279,6 +282,7 @@ export function useAudioEngine() {
           isPlaying: false,
           volume: 0.8,
           baseRate: 1,
+          direction: 1,
           eq: { low: 0, mid: 0, high: 0 },
           pan: 0,
           reverb: 0,
@@ -322,21 +326,29 @@ export function useAudioEngine() {
       if (!internal || internal.source) return;
       if (ctx.state === "suspended") ctx.resume();
 
+      // Reset al final SOLO si vamos hacia adelante; al principio si vamos hacia atrás
       if (
-        internal.positionAtLastUpdate >= internal.buffer.duration - END_MARGIN ||
-        internal.positionAtLastUpdate < 0
+        internal.direction === 1 &&
+        internal.positionAtLastUpdate >= internal.buffer.duration - END_MARGIN
       ) {
         internal.positionAtLastUpdate = 0;
         internal.ctxTimeAtLastUpdate = ctx.currentTime;
         patchTrack(id, { currentTime: 0 });
+      } else if (
+        internal.direction === -1 &&
+        internal.positionAtLastUpdate <= END_MARGIN
+      ) {
+        internal.positionAtLastUpdate = internal.buffer.duration;
+        internal.ctxTimeAtLastUpdate = ctx.currentTime;
+        patchTrack(id, { currentTime: internal.buffer.duration });
       }
 
-      internal.currentRate = internal.baseRate;
+      internal.currentRate = internal.direction * Math.abs(internal.baseRate);
       const source = startSourceAt(
         internal,
         ctx,
         internal.positionAtLastUpdate,
-        false,
+        internal.direction === -1,
       );
       if (!source) return;
 
@@ -482,19 +494,17 @@ export function useAudioEngine() {
       const ctx = getCtx();
       const internal = internalsRef.current.get(id);
       if (!internal) return;
-      internal.baseRate = baseRate;
-      patchTrack(id, { baseRate });
+      internal.baseRate = Math.abs(baseRate);
+      patchTrack(id, { baseRate: Math.abs(baseRate) });
 
       if (internal.source && !internal.isScratching) {
         freezePosition(internal, ctx);
-        internal.currentRate = baseRate;
-        internal.source.playbackRate.value = Math.max(
-          Math.abs(baseRate),
-          MIN_ABS_RATE,
-        );
+        const newRate = internal.direction * Math.abs(baseRate);
+        // setTrackRate se encarga del swap si cambia el signo
+        setTrackRate(id, newRate);
       }
     },
-    [getCtx, freezePosition, patchTrack],
+    [getCtx, freezePosition, setTrackRate, patchTrack],
   );
 
   const setTrackBaseRateSmooth = useCallback(
@@ -522,6 +532,28 @@ export function useAudioEngine() {
       tick();
     },
     [setTrackBaseRate],
+  );
+
+  const setTrackDirection = useCallback(
+    (id: string, direction: 1 | -1) => {
+      const ctx = getCtx();
+      const internal = internalsRef.current.get(id);
+      if (!internal) return;
+
+      internal.direction = direction;
+      patchTrack(id, { direction });
+
+      // Si está sonando y no estamos scratchando, cambiamos el source en vivo
+      if (internal.source && !internal.isScratching) {
+        const newRate = direction * Math.abs(internal.baseRate);
+        // Aprovechamos setTrackRate para que haga el swap
+        setTrackRate(id, newRate);
+      } else if (!internal.source) {
+        // En pausa: solo actualizamos currentRate para el próximo play
+        internal.currentRate = direction * Math.abs(internal.baseRate);
+      }
+    },
+    [getCtx, patchTrack, setTrackRate],
   );
 
   const beginScratch = useCallback((id: string) => {

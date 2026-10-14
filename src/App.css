@@ -518,3 +518,33 @@ body {
   width: 100%;
   accent-color: var(--primary);
 }
+
+
+
+
+.direction-toggle {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.direction-toggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+}
+.direction-toggle.reverse {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  font-weight: 600;
+}
+.direction-toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

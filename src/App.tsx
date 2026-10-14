@@ -81,6 +81,7 @@ function App() {
     seekTrack,
     setTrackRate,
     setTrackBaseRateSmooth,
+    setTrackDirection,         // ← nuevo
     setTrackEQ,
     setTrackPan,
     setTrackReverb,
@@ -217,6 +218,12 @@ function App() {
     setTrackBaseRateSmooth(selectedTrackId, newRpm / RPM_BASE, 400);
   };
 
+  const handleDirectionToggle = () => {
+    if (!selectedTrackId || !selectedTrack) return;
+    const newDir: 1 | -1 = selectedTrack.direction === 1 ? -1 : 1;
+    setTrackDirection(selectedTrackId, newDir);
+  };
+
   const startEditRpm = () => {
     if (!selectedTrack) return;
     setRpmDraft(rpm.toFixed(2));
@@ -319,13 +326,14 @@ function App() {
     if (controlsRef.current) controlsRef.current.enabled = true;
     if (!selectedTrackId) return;
     endScratch(selectedTrackId);
-    const target = selectedTrack?.baseRate ?? 1;
+    const dir = selectedTrack?.direction ?? 1;
+    const target = dir * (selectedTrack?.baseRate ?? 1);
     const id = selectedTrackId;
     const start = performance.now();
     const dur = 80;
     const tick = () => {
       const t = Math.min((performance.now() - start) / dur, 1);
-      const rate = 0.001 + (target - 0.001) * t;
+      const rate = (dir > 0 ? 0.001 : -0.001) + (target - (dir > 0 ? 0.001 : -0.001)) * t;
       setTrackRate(id, rate);
       if (t < 1) requestAnimationFrame(tick);
     };
@@ -500,6 +508,18 @@ function App() {
                 onChange={handlePanChange}
               />
             </div>
+          </div>
+
+          <div className="section">
+            <div className="section-title">Dirección</div>
+
+            <button
+              className={`direction-toggle ${selectedTrack?.direction === -1 ? 'reverse' : ''}`}
+              onClick={handleDirectionToggle}
+              disabled={!selectedTrack}
+            >
+              {selectedTrack?.direction === -1 ? '⏪ Reproduciendo hacia atrás' : '⏩ Reproduciendo hacia adelante'}
+            </button>
           </div>
 
           <div className="section">
