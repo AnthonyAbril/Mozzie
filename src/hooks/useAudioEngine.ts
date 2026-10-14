@@ -1,9 +1,11 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from "react";
+import { loadAllDiscThemes, saveDiscTheme } from "../utils/themeStorage";
 
-export type EQBand = 'low' | 'mid' | 'high';
+export type EQBand = "low" | "mid" | "high";
 
 export interface Track {
   id: string;
+  stableKey: string; // ← nuevo
   name: string;
   file: File;
   coverUrl: string | null;
@@ -13,8 +15,11 @@ export interface Track {
   volume: number;
   baseRate: number;
   eq: { low: number; mid: number; high: number };
-  pan: number;    // -1 (izq) a 1 (der)
-  reverb: number; // 0 a 1 (wet mix)
+  pan: number;
+  reverb: number;
+  themeColors: [string, string] | null; // ← nuevo (extraído de portada)
+  themeMode: "disc" | "custom"; // ← nuevo
+  customThemeColors: [string, string] | null; // ← nuevo
 }
 
 interface TrackInternal {
@@ -73,12 +78,12 @@ export function useAudioEngine() {
       setTracks((prev) =>
         prev.map((t) => {
           if (t.id !== id) return t;
-          const p = typeof patch === 'function' ? patch(t) : patch;
+          const p = typeof patch === "function" ? patch(t) : patch;
           return { ...t, ...p };
-        })
+        }),
       );
     },
-    []
+    [],
   );
 
   const freezePosition = useCallback(
@@ -87,7 +92,7 @@ export function useAudioEngine() {
       internal.positionAtLastUpdate += elapsed * internal.currentRate;
       internal.ctxTimeAtLastUpdate = ctx.currentTime;
     },
-    []
+    [],
   );
 
   const getPosition = useCallback(
@@ -95,7 +100,7 @@ export function useAudioEngine() {
       const elapsed = ctx.currentTime - internal.ctxTimeAtLastUpdate;
       return internal.positionAtLastUpdate + elapsed * internal.currentRate;
     },
-    []
+    [],
   );
 
   const createSource = useCallback(
@@ -110,7 +115,7 @@ export function useAudioEngine() {
       internal.ctxTimeAtLastUpdate = ctx.currentTime;
       return source;
     },
-    []
+    [],
   );
 
   // ---------- Añadir pista ----------
@@ -126,18 +131,18 @@ export function useAudioEngine() {
       gain.gain.value = 0.8;
 
       const lowShelf = ctx.createBiquadFilter();
-      lowShelf.type = 'lowshelf';
+      lowShelf.type = "lowshelf";
       lowShelf.frequency.value = 200;
       lowShelf.gain.value = 0;
 
       const midPeak = ctx.createBiquadFilter();
-      midPeak.type = 'peaking';
+      midPeak.type = "peaking";
       midPeak.frequency.value = 1000;
       midPeak.Q.value = 0.7;
       midPeak.gain.value = 0;
 
       const highShelf = ctx.createBiquadFilter();
-      highShelf.type = 'highshelf';
+      highShelf.type = "highshelf";
       highShelf.frequency.value = 3500;
       highShelf.gain.value = 0;
 
@@ -152,6 +157,9 @@ export function useAudioEngine() {
 
       const convolver = ctx.createConvolver();
       convolver.buffer = getImpulse(ctx);
+
+      const stableKey = `${file.name}_${file.size}`;
+      const storedTheme = loadAllDiscThemes()[stableKey];
 
       gain.connect(lowShelf);
       lowShelf.connect(midPeak);
@@ -188,6 +196,7 @@ export function useAudioEngine() {
         ...prev,
         {
           id,
+          stableKey,
           name: file.name,
           file,
           coverUrl,
@@ -199,12 +208,25 @@ export function useAudioEngine() {
           eq: { low: 0, mid: 0, high: 0 },
           pan: 0,
           reverb: 0,
+          themeColors: null,
+          themeMode: storedTheme?.mode ?? "disc",
+          customThemeColors: storedTheme?.customColors ?? null,
         },
       ]);
       return id;
     },
-    [getCtx, getImpulse]
+    [getCtx, getImpulse],
   );
+
+  // ---------- Reordenar pistas ----------
+  const reorderTracks = useCallback((orderedIds: string[]) => {
+    setTracks((prev) => {
+      const map = new Map(prev.map((t) => [t.id, t]));
+      return orderedIds
+        .map((id) => map.get(id))
+        .filter((t): t is Track => t !== undefined);
+    });
+  }, []);
 
   // ---------- Play / Pause ----------
   const playTrack = useCallback(
@@ -212,7 +234,7 @@ export function useAudioEngine() {
       const ctx = getCtx();
       const internal = internalsRef.current.get(id);
       if (!internal || internal.source) return;
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx.state === "suspended") ctx.resume();
 
       if (
         internal.positionAtLastUpdate >= internal.buffer.duration - 0.03 ||
@@ -236,7 +258,7 @@ export function useAudioEngine() {
         }
       };
     },
-    [getCtx, createSource, patchTrack]
+    [getCtx, createSource, patchTrack],
   );
 
   const pauseTrack = useCallback(
@@ -255,7 +277,7 @@ export function useAudioEngine() {
         currentTime: internal.positionAtLastUpdate,
       });
     },
-    [getCtx, freezePosition, patchTrack]
+    [getCtx, freezePosition, patchTrack],
   );
 
   const toggleTrack = useCallback(
@@ -265,7 +287,7 @@ export function useAudioEngine() {
       if (internal.source) pauseTrack(id);
       else playTrack(id);
     },
-    [playTrack, pauseTrack]
+    [playTrack, pauseTrack],
   );
 
   // ---------- Seek ----------
@@ -300,7 +322,7 @@ export function useAudioEngine() {
       }
       patchTrack(id, { currentTime: time });
     },
-    [getCtx, createSource, patchTrack]
+    [getCtx, createSource, patchTrack],
   );
 
   // ---------- Scratch rate ----------
@@ -318,7 +340,7 @@ export function useAudioEngine() {
         internal.source.playbackRate.value = rate;
       }
     },
-    [getCtx, freezePosition]
+    [getCtx, freezePosition],
   );
 
   // ---------- Base rate (RPM) ----------
@@ -336,7 +358,7 @@ export function useAudioEngine() {
         internal.source.playbackRate.value = baseRate;
       }
     },
-    [getCtx, freezePosition, patchTrack]
+    [getCtx, freezePosition, patchTrack],
   );
 
   const setTrackBaseRateSmooth = useCallback(
@@ -363,7 +385,7 @@ export function useAudioEngine() {
       };
       tick();
     },
-    [setTrackBaseRate]
+    [setTrackBaseRate],
   );
 
   const beginScratch = useCallback((id: string) => {
@@ -383,15 +405,15 @@ export function useAudioEngine() {
       const internal = internalsRef.current.get(id);
       if (!internal) return;
       const node =
-        band === 'low'
+        band === "low"
           ? internal.lowShelf
-          : band === 'mid'
-          ? internal.midPeak
-          : internal.highShelf;
+          : band === "mid"
+            ? internal.midPeak
+            : internal.highShelf;
       node.gain.setTargetAtTime(value, ctx.currentTime, 0.01);
       patchTrack(id, (t) => ({ eq: { ...t.eq, [band]: value } }));
     },
-    [getCtx, patchTrack]
+    [getCtx, patchTrack],
   );
 
   // ---------- Pan (L/R) ----------
@@ -404,7 +426,7 @@ export function useAudioEngine() {
       internal.panner.pan.setTargetAtTime(clamped, ctx.currentTime, 0.02);
       patchTrack(id, { pan: clamped });
     },
-    [getCtx, patchTrack]
+    [getCtx, patchTrack],
   );
 
   // ---------- Reverb (wet mix) ----------
@@ -416,10 +438,14 @@ export function useAudioEngine() {
       const clamped = Math.max(0, Math.min(1, amount));
       // Dry y wet se ajustan complementariamente para no perder volumen
       internal.wetGain.gain.setTargetAtTime(clamped, ctx.currentTime, 0.05);
-      internal.dryGain.gain.setTargetAtTime(1 - clamped * 0.4, ctx.currentTime, 0.05);
+      internal.dryGain.gain.setTargetAtTime(
+        1 - clamped * 0.4,
+        ctx.currentTime,
+        0.05,
+      );
       patchTrack(id, { reverb: clamped });
     },
-    [getCtx, patchTrack]
+    [getCtx, patchTrack],
   );
 
   // ---------- Volumen ----------
@@ -431,14 +457,56 @@ export function useAudioEngine() {
       internal.gain.gain.setTargetAtTime(volume, ctx.currentTime, 0.01);
       patchTrack(id, { volume });
     },
-    [getCtx, patchTrack]
+    [getCtx, patchTrack],
   );
 
   const setTrackCover = useCallback(
     (id: string, coverUrl: string | null) => {
       patchTrack(id, { coverUrl });
     },
-    [patchTrack]
+    [patchTrack],
+  );
+
+  // ---------- Tema por disco ----------
+  const setTrackExtractedColors = useCallback(
+    (id: string, colors: [string, string]) => {
+      patchTrack(id, { themeColors: colors });
+    },
+    [patchTrack],
+  );
+
+  const setTrackThemeMode = useCallback(
+    (id: string, mode: "disc" | "custom") => {
+      setTracks((prev) => {
+        const track = prev.find((t) => t.id === id);
+        if (track) {
+          saveDiscTheme(track.stableKey, {
+            mode,
+            customColors: track.customThemeColors,
+          });
+        }
+        return prev.map((t) => (t.id === id ? { ...t, themeMode: mode } : t));
+      });
+    },
+    [],
+  );
+
+  const setTrackCustomThemeColors = useCallback(
+    (id: string, colors: [string, string]) => {
+      setTracks((prev) => {
+        const track = prev.find((t) => t.id === id);
+        if (track) {
+          saveDiscTheme(track.stableKey, {
+            mode: track.themeMode,
+            customColors: colors,
+          });
+        }
+        return prev.map((t) =>
+          t.id === id ? { ...t, customThemeColors: colors } : t,
+        );
+      });
+    },
+    [],
   );
 
   // ---------- Rastreo de posición ----------
@@ -502,6 +570,10 @@ export function useAudioEngine() {
     setTrackReverb,
     setTrackVolume,
     setTrackCover,
+    setTrackExtractedColors, // ← nuevo
+    setTrackThemeMode, // ← nuevo
+    setTrackCustomThemeColors, // ← nuevo
+    reorderTracks,
     beginScratch,
     endScratch,
   };

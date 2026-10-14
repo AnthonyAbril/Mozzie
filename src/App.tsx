@@ -1,10 +1,19 @@
 import * as THREE from 'three';
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useMemo, useEffect, memo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { ScratchableVinyl } from './components/ScratchableVinyl';
-import { useAudioEngine } from './hooks/useAudioEngine';
+import { useAudioEngine, type Track } from './hooks/useAudioEngine';
 import { getCoverArt } from './utils/coverArt';
+
+import { useTheme } from './hooks/useTheme';
+import { extractPaletteFromImage } from './utils/colorExtract';
+import { CustomizePanel } from './components/CustomizePanel';
+import { useAnimatedTheme } from './hooks/useAnimatedTheme';
+
+import { Reorder } from 'framer-motion';
+
+
 import './App.css';
 
 const RPM_BASE = 33.333;
@@ -16,23 +25,77 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+interface TrackItemProps {
+  id: string;
+  name: string;
+  isPlaying: boolean;
+  isSelected: boolean;
+  onSelect: (id: string) => void;    // ← recibe id
+  onToggle: (id: string) => void;    // ← recibe id
+}
+
+const TrackItem = memo(function TrackItem({
+  id,
+  name,
+  isPlaying,
+  isSelected,
+  onSelect,
+  onToggle,
+}: TrackItemProps) {
+  return (
+    <Reorder.Item
+      value={id}
+      className={`track-item ${isSelected ? 'active' : ''}`}
+      onClick={() => onSelect(id)}
+      title={name}
+      whileDrag={{
+        scale: 1.03,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+        cursor: 'grabbing',
+        zIndex: 10,
+      }}
+    >
+      <span className="track-name">{name}</span>
+      <button
+        className={`track-status-btn ${isPlaying ? 'playing' : 'paused'}`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(id);
+        }}
+        aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+      >
+        {isPlaying ? '▶' : '⏸'}
+      </button>
+    </Reorder.Item>
+  );
+});
+
 function App() {
   const {
     tracks,
     addTrack,
     toggleTrack,
     playTrack,
+    pauseTrack,       // ← asegúrate de que está
     seekTrack,
     setTrackRate,
     setTrackBaseRateSmooth,
     setTrackEQ,
-    setTrackPan,       // ← nuevo
-    setTrackReverb,    // ← nuevo
+    setTrackPan,
+    setTrackReverb,
     setTrackVolume,
     setTrackCover,
+    setTrackExtractedColors,      // ← nuevo
+    setTrackThemeMode,            // ← nuevo
+    setTrackCustomThemeColors,    // ← nuevo
+    reorderTracks,
     beginScratch,
     endScratch,
   } = useAudioEngine();
+
+  const { globalTheme, setGlobalTheme } = useTheme();
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   const [editingRpm, setEditingRpm] = useState(false);
   const [rpmDraft, setRpmDraft] = useState('');
@@ -51,6 +114,65 @@ function App() {
   const pan = selectedTrack?.pan ?? 0;
   const reverb = selectedTrack?.reverb ?? 0;
 
+  const effectiveTheme = useMemo(() => {
+    if (globalTheme.discThemeMode && selectedTrack) {
+      if (
+        selectedTrack.themeMode === 'custom' &&
+        selectedTrack.customThemeColors
+      ) {
+        return {
+          primary: globalTheme.primary,
+          bg1: selectedTrack.customThemeColors[0],
+          bg2: selectedTrack.customThemeColors[1],
+        };
+      }
+      if (selectedTrack.themeColors) {
+        return {
+          primary: globalTheme.primary,
+          bg1: selectedTrack.themeColors[0],
+          bg2: selectedTrack.themeColors[1],
+        };
+      }
+    }
+    return {
+      primary: globalTheme.primary,
+      bg1: globalTheme.themeColor1,
+      bg2: globalTheme.themeColor2,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    globalTheme.discThemeMode,
+    globalTheme.primary,
+    globalTheme.themeColor1,
+    globalTheme.themeColor2,
+    selectedTrack?.themeMode,
+    selectedTrack?.themeColors?.[0],
+    selectedTrack?.themeColors?.[1],
+    selectedTrack?.customThemeColors?.[0],
+    selectedTrack?.customThemeColors?.[1],
+  ]);
+
+  const animatedTheme = useAnimatedTheme(effectiveTheme, 600);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const track of tracks) {
+        if (!track.coverUrl) continue;
+        const palette = await extractPaletteFromImage(
+          track.coverUrl,
+          globalTheme.satBoost,
+          globalTheme.brightness   // ← nuevo
+        );
+        if (cancelled) return;
+        setTrackExtractedColors(track.id, palette);
+      }
+    })();
+    return () => { cancelled = true; };
+    // Solo re-extrae cuando el boost cambia
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalTheme.satBoost, globalTheme.brightness]);
+
   const handleOpenFile = () => fileInputRef.current?.click();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -60,11 +182,19 @@ function App() {
 
     const id = await addTrack(file, null);
     setSelectedTrackId(id);
-    playTrack(id);
+    playExclusive(id);
 
     try {
       const { coverUrl } = await getCoverArt(file);
-      if (coverUrl) setTrackCover(id, coverUrl);
+      if (coverUrl) {
+        setTrackCover(id, coverUrl);
+        const palette = await extractPaletteFromImage(
+          coverUrl,
+          globalTheme.satBoost,
+          globalTheme.brightness   // ← nuevo
+        );
+        setTrackExtractedColors(id, palette);
+      }
     } catch (err) {
       console.warn('Carátula no disponible:', err);
     }
@@ -127,22 +257,45 @@ function App() {
   /** Formatea el pan: L50 / C / R50 */
   const formatPan = (v: number) => {
     if (Math.abs(v) < 0.02) return 'C';
-    const side = v < 0 ? 'L' : 'R';
-    return `${side}${Math.round(Math.abs(v) * 100)}`;
-  };
+      const side = v < 0 ? 'L' : 'R';
+      return `${side}${Math.round(Math.abs(v) * 100)}`;
+    };
 
-  const handleSwipe = useCallback(
+    const handleSwipe = useCallback(
     (direction: 'left' | 'right') => {
-      if (!selectedTrackId) return;
+      if (!selectedTrackId || tracks.length === 0) return;
       const idx = tracks.findIndex((t) => t.id === selectedTrackId);
       if (idx < 0) return;
       const newIdx =
         direction === 'right'
-          ? Math.max(0, idx - 1)
-          : Math.min(tracks.length - 1, idx + 1);
-      if (newIdx !== idx) setSelectedTrackId(tracks[newIdx].id);
+          ? (idx - 1 + tracks.length) % tracks.length
+          : (idx + 1) % tracks.length;
+      if (newIdx === idx) return;
+
+      const wasPlaying = tracks[idx].isPlaying;
+      const newTrack = tracks[newIdx];
+
+      if (globalTheme.singlePlayback) {
+        if (wasPlaying) {
+          pauseTrack(tracks[idx].id);
+          playTrack(newTrack.id);
+        }
+      }
+      setSelectedTrackId(newTrack.id);
     },
-    [tracks, selectedTrackId]
+    [tracks, selectedTrackId, globalTheme.singlePlayback, pauseTrack, playTrack]
+  );
+
+  const playExclusive = useCallback(
+    (id: string) => {
+      if (globalTheme.singlePlayback) {
+        tracks.forEach((t) => {
+          if (t.id !== id && t.isPlaying) pauseTrack(t.id);
+        });
+      }
+      playTrack(id);
+    },
+    [globalTheme.singlePlayback, tracks, pauseTrack, playTrack]
   );
 
   // -------- Scratch --------
@@ -179,6 +332,31 @@ function App() {
     tick();
   }, [selectedTrackId, selectedTrack, setTrackRate, endScratch]);
 
+  // En App(), arriba del return:
+  const stateRef = useRef<any>(null);
+  stateRef.current = {
+    tracks,
+    selectedTrackId,
+    selectedTrack,
+    singlePlayback: globalTheme.singlePlayback,
+  };
+
+  const handleSelectTrack = useCallback((id: string) => {
+    const s = stateRef.current;
+    if (s.singlePlayback && s.selectedTrack?.isPlaying && id !== s.selectedTrackId) {
+      // Para todas y arranca la nueva
+      s.tracks.forEach((t: Track) => {
+        if (t.id !== id && t.isPlaying) pauseTrack(t.id);
+      });
+      playTrack(id);
+    }
+    setSelectedTrackId(id);
+  }, [pauseTrack, playTrack]); // ambas son estables en el hook
+
+  const handleToggleTrack = useCallback((id: string) => {
+    toggleTrack(id);
+  }, [toggleTrack]);
+
     return (
     <>
       <div id="app">
@@ -193,33 +371,42 @@ function App() {
             style={{ display: 'none' }}
             onChange={handleFileChange}
           />
-          <ul id="track-list">
+          <Reorder.Group
+            axis="y"
+            id="track-list"
+            values={tracks.map((t) => t.id)}
+            onReorder={(newIds) => reorderTracks(newIds as string[])}
+          >
             {tracks.length === 0 && (
               <li className="empty">Sin canciones cargadas</li>
             )}
             {tracks.map((track) => (
-              <li
+              <TrackItem
                 key={track.id}
-                className={track.id === selectedTrackId ? 'active' : ''}
-                onClick={() => setSelectedTrackId(track.id)}
-                title={track.name}
-              >
-                <span className="track-name">{track.name}</span>
-                {track.isPlaying && <span className="track-status">▶</span>}
-              </li>
+                id={track.id}
+                name={track.name}
+                isPlaying={track.isPlaying}
+                isSelected={track.id === selectedTrackId}
+                onSelect={handleSelectTrack}
+                onToggle={handleToggleTrack}
+              />
             ))}
-          </ul>
+          </Reorder.Group>
+          <button className="customize-btn" onClick={() => setCustomizeOpen(true)}>
+            ⚙️ Personalización
+          </button>
         </aside>
 
         <main id="main">
           <section id="viewport">
             <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
-              <ambientLight intensity={0.5} />
-              <directionalLight position={[5, 10, 6]} intensity={1.5} />
+              <color attach="background" args={[animatedTheme.bg1]} />
+              <ambientLight intensity={0.55} />
+              <directionalLight position={[5, 10, 6]} intensity={1.4} />
               <directionalLight
                 position={[-6, 5, -7]}
-                intensity={0.6}
-                color="#6688ff"
+                intensity={0.7}
+                color={animatedTheme.primary}
               />
 
               <ScratchableVinyl
@@ -335,6 +522,73 @@ function App() {
             </div>
           </div>
 
+          {selectedTrack && (
+            <div className="section">
+              <div className="section-title">Tema del disco</div>
+
+              <div className="theme-mode-toggle">
+                <button
+                  className={selectedTrack.themeMode === 'disc' ? 'active' : ''}
+                  onClick={() => setTrackThemeMode(selectedTrack.id, 'disc')}
+                  disabled={!selectedTrack.themeColors}
+                  title={
+                    selectedTrack.themeColors
+                      ? 'Colores extraídos de la portada'
+                      : 'Esperando carátula…'
+                  }
+                >
+                  Disco
+                </button>
+                <button
+                  className={selectedTrack.themeMode === 'custom' ? 'active' : ''}
+                  onClick={() => setTrackThemeMode(selectedTrack.id, 'custom')}
+                >
+                  Personalizado
+                </button>
+              </div>
+
+              {selectedTrack.themeMode === 'disc' && selectedTrack.themeColors && (
+                <div className="theme-swatches">
+                  <div
+                    className="swatch"
+                    style={{ background: selectedTrack.themeColors[0] }}
+                    title={selectedTrack.themeColors[0]}
+                  />
+                  <div
+                    className="swatch"
+                    style={{ background: selectedTrack.themeColors[1] }}
+                    title={selectedTrack.themeColors[1]}
+                  />
+                </div>
+              )}
+
+              {selectedTrack.themeMode === 'custom' && (
+                <div className="custom-colors">
+                  <input
+                    type="color"
+                    value={selectedTrack.customThemeColors?.[0] ?? '#0e0e12'}
+                    onChange={(e) =>
+                      setTrackCustomThemeColors(selectedTrack.id, [
+                        e.target.value,
+                        selectedTrack.customThemeColors?.[1] ?? '#15151b',
+                      ])
+                    }
+                  />
+                  <input
+                    type="color"
+                    value={selectedTrack.customThemeColors?.[1] ?? '#15151b'}
+                    onChange={(e) =>
+                      setTrackCustomThemeColors(selectedTrack.id, [
+                        selectedTrack.customThemeColors?.[0] ?? '#0e0e12',
+                        e.target.value,
+                      ])
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="section">
             <div className="section-title">Ecualizador</div>
 
@@ -397,6 +651,12 @@ function App() {
           </div>
         </aside>
       </div>
+      <CustomizePanel
+        open={customizeOpen}
+        theme={globalTheme}
+        onChange={setGlobalTheme}
+        onClose={() => setCustomizeOpen(false)}
+      />
     </>
   );
 }
