@@ -5,7 +5,7 @@ export type EQBand = "low" | "mid" | "high";
 
 export interface Track {
   id: string;
-  stableKey: string; // ← nuevo
+  stableKey: string;
   name: string;
   file: File;
   coverUrl: string | null;
@@ -17,14 +17,16 @@ export interface Track {
   eq: { low: number; mid: number; high: number };
   pan: number;
   reverb: number;
-  themeColors: [string, string] | null; // ← nuevo (extraído de portada)
-  themeMode: "disc" | "custom"; // ← nuevo
-  customThemeColors: [string, string] | null; // ← nuevo
+  themeColors: [string, string] | null;
+  themeMode: "disc" | "custom";
+  customThemeColors: [string, string] | null;
 }
 
 interface TrackInternal {
   buffer: AudioBuffer;
+  reversedBuffer: AudioBuffer | null;
   source: AudioBufferSourceNode | null;
+  sourceIsReversed: boolean;
   gain: GainNode;
   lowShelf: BiquadFilterNode;
   midPeak: BiquadFilterNode;
@@ -40,7 +42,9 @@ interface TrackInternal {
   isScratching: boolean;
 }
 
-/** Genera un impulso sintético de reverb (ruido con decaimiento exponencial) */
+const MIN_ABS_RATE = 0.001;
+const END_MARGIN = 0.03;
+
 function createImpulseResponse(ctx: AudioContext, duration = 2.2, decay = 2.4) {
   const rate = ctx.sampleRate;
   const length = Math.floor(rate * duration);
@@ -67,9 +71,7 @@ export function useAudioEngine() {
   }, []);
 
   const getImpulse = useCallback((ctx: AudioContext) => {
-    if (!impulseRef.current) {
-      impulseRef.current = createImpulseResponse(ctx);
-    }
+    if (!impulseRef.current) impulseRef.current = createImpulseResponse(ctx);
     return impulseRef.current;
   }, []);
 
@@ -103,19 +105,93 @@ export function useAudioEngine() {
     [],
   );
 
-  const createSource = useCallback(
-    (internal: TrackInternal, ctx: AudioContext, offset: number) => {
+  /** Crea el buffer invertido la primera vez que hace falta */
+  const getOrCreateReversedBuffer = useCallback(
+    (internal: TrackInternal, ctx: AudioContext): AudioBuffer => {
+      if (internal.reversedBuffer) return internal.reversedBuffer;
+      const normal = internal.buffer;
+      const len = normal.length;
+      const reversed = ctx.createBuffer(
+        normal.numberOfChannels,
+        len,
+        normal.sampleRate,
+      );
+      for (let ch = 0; ch < normal.numberOfChannels; ch++) {
+        const src = normal.getChannelData(ch);
+        const dst = reversed.getChannelData(ch);
+        for (let i = 0; i < len; i++) dst[i] = src[len - 1 - i];
+      }
+      internal.reversedBuffer = reversed;
+      return reversed;
+    },
+    [],
+  );
+
+  /** Crea un source en la posición de pista dada, eligiendo buffer según dirección */
+  const startSourceAt = useCallback(
+    (
+      internal: TrackInternal,
+      ctx: AudioContext,
+      position: number,
+      isReversed: boolean,
+    ): AudioBufferSourceNode | null => {
+      const buffer = isReversed
+        ? getOrCreateReversedBuffer(internal, ctx)
+        : internal.buffer;
+
+      const trackDuration = internal.buffer.duration;
+      const clamped = Math.max(0, Math.min(position, trackDuration));
+
+      // Normal: offset = position. Invertido: offset = duration - position.
+      let offset = isReversed ? trackDuration - clamped : clamped;
+      offset = Math.max(0, Math.min(offset, buffer.duration - 0.005));
+
       const source = ctx.createBufferSource();
-      source.buffer = internal.buffer;
-      source.playbackRate.value = internal.currentRate || internal.baseRate;
+      source.buffer = buffer;
+      source.playbackRate.value = Math.max(
+        Math.abs(internal.currentRate),
+        MIN_ABS_RATE,
+      );
       source.connect(internal.gain);
-      source.start(0, Math.max(0, offset));
+      source.start(0, offset);
+
       internal.source = source;
-      internal.positionAtLastUpdate = offset;
+      internal.sourceIsReversed = isReversed;
+      internal.positionAtLastUpdate = clamped;
       internal.ctxTimeAtLastUpdate = ctx.currentTime;
       return source;
     },
-    [],
+    [getOrCreateReversedBuffer],
+  );
+
+  /** onended: normal → reset. Durante scratch → solo limpiar source y clamp. */
+  const attachOnended = useCallback(
+    (
+      source: AudioBufferSourceNode,
+      internal: TrackInternal,
+      id: string,
+      ctx: AudioContext,
+    ) => {
+      source.onended = () => {
+        if (internal.source !== source) return;
+
+        if (internal.isScratching) {
+          const trackDur = internal.buffer.duration;
+          const pos = internal.positionAtLastUpdate;
+          if (pos <= 0) internal.positionAtLastUpdate = 0;
+          else if (pos >= trackDur) internal.positionAtLastUpdate = trackDur;
+          internal.ctxTimeAtLastUpdate = ctx.currentTime;
+          internal.source = null;
+          return;
+        }
+
+        internal.source = null;
+        internal.positionAtLastUpdate = 0;
+        internal.ctxTimeAtLastUpdate = ctx.currentTime;
+        patchTrack(id, { isPlaying: false, currentTime: 0 });
+      };
+    },
+    [patchTrack],
   );
 
   // ---------- Añadir pista ----------
@@ -125,8 +201,6 @@ export function useAudioEngine() {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = await ctx.decodeAudioData(arrayBuffer);
 
-      // Cadena en serie: gain → lowShelf → midPeak → highShelf → panner → dry → destination
-      //                                                                 ↘ wet → convolver ↗
       const gain = ctx.createGain();
       gain.gain.value = 0.8;
 
@@ -165,10 +239,8 @@ export function useAudioEngine() {
       lowShelf.connect(midPeak);
       midPeak.connect(highShelf);
       highShelf.connect(panner);
-
       panner.connect(dryGain);
       dryGain.connect(ctx.destination);
-
       panner.connect(wetGain);
       wetGain.connect(convolver);
       convolver.connect(ctx.destination);
@@ -176,7 +248,9 @@ export function useAudioEngine() {
       const id = crypto.randomUUID();
       internalsRef.current.set(id, {
         buffer,
+        reversedBuffer: null,
         source: null,
+        sourceIsReversed: false,
         gain,
         lowShelf,
         midPeak,
@@ -213,12 +287,24 @@ export function useAudioEngine() {
           customThemeColors: storedTheme?.customColors ?? null,
         },
       ]);
+
+      // Creación diferida del buffer invertido (no bloquea el play inicial)
+      setTimeout(() => {
+        const still = internalsRef.current.get(id);
+        if (still && !still.reversedBuffer) {
+          try {
+            getOrCreateReversedBuffer(still, ctx);
+          } catch (err) {
+            console.warn("No se pudo crear el buffer invertido:", err);
+          }
+        }
+      }, 1500);
+
       return id;
     },
-    [getCtx, getImpulse],
+    [getCtx, getImpulse, getOrCreateReversedBuffer],
   );
 
-  // ---------- Reordenar pistas ----------
   const reorderTracks = useCallback((orderedIds: string[]) => {
     setTracks((prev) => {
       const map = new Map(prev.map((t) => [t.id, t]));
@@ -237,7 +323,7 @@ export function useAudioEngine() {
       if (ctx.state === "suspended") ctx.resume();
 
       if (
-        internal.positionAtLastUpdate >= internal.buffer.duration - 0.03 ||
+        internal.positionAtLastUpdate >= internal.buffer.duration - END_MARGIN ||
         internal.positionAtLastUpdate < 0
       ) {
         internal.positionAtLastUpdate = 0;
@@ -246,19 +332,18 @@ export function useAudioEngine() {
       }
 
       internal.currentRate = internal.baseRate;
-      const source = createSource(internal, ctx, internal.positionAtLastUpdate);
-      patchTrack(id, { isPlaying: true });
+      const source = startSourceAt(
+        internal,
+        ctx,
+        internal.positionAtLastUpdate,
+        false,
+      );
+      if (!source) return;
 
-      source.onended = () => {
-        if (internal.source === source) {
-          internal.source = null;
-          internal.positionAtLastUpdate = 0;
-          internal.ctxTimeAtLastUpdate = ctx.currentTime;
-          patchTrack(id, { isPlaying: false, currentTime: 0 });
-        }
-      };
+      attachOnended(source, internal, id, ctx);
+      patchTrack(id, { isPlaying: true });
     },
-    [getCtx, createSource, patchTrack],
+    [getCtx, startSourceAt, attachOnended, patchTrack],
   );
 
   const pauseTrack = useCallback(
@@ -269,7 +354,11 @@ export function useAudioEngine() {
 
       freezePosition(internal, ctx);
       internal.source.onended = null;
-      internal.source.stop();
+      try {
+        internal.source.stop();
+      } catch {
+        /* ya parada */
+      }
       internal.source.disconnect();
       internal.source = null;
       patchTrack(id, {
@@ -297,12 +386,16 @@ export function useAudioEngine() {
       const internal = internalsRef.current.get(id);
       if (!internal) return;
 
-      const atEnd = time >= internal.buffer.duration - 0.03;
+      const atEnd = time >= internal.buffer.duration - END_MARGIN;
       const wasPlaying = !!internal.source;
 
       if (internal.source) {
         internal.source.onended = null;
-        internal.source.stop();
+        try {
+          internal.source.stop();
+        } catch {
+          /* noop */
+        }
         internal.source.disconnect();
         internal.source = null;
       }
@@ -315,14 +408,16 @@ export function useAudioEngine() {
       }
 
       if (wasPlaying) {
-        createSource(internal, ctx, time);
+        const isReversed = internal.currentRate < 0;
+        const source = startSourceAt(internal, ctx, time, isReversed);
+        if (source) attachOnended(source, internal, id, ctx);
       } else {
         internal.positionAtLastUpdate = time;
         internal.ctxTimeAtLastUpdate = ctx.currentTime;
       }
       patchTrack(id, { currentTime: time });
     },
-    [getCtx, createSource, patchTrack],
+    [getCtx, startSourceAt, attachOnended, patchTrack],
   );
 
   // ---------- Scratch rate ----------
@@ -332,15 +427,53 @@ export function useAudioEngine() {
       const internal = internalsRef.current.get(id);
       if (!internal) return;
 
+      const oldSign = Math.sign(internal.currentRate);
+      const newSign = Math.sign(rate);
+
       freezePosition(internal, ctx);
       internal.currentRate = rate;
 
-      if (internal.source) {
+      // Sin source: arrancar uno si tiene sentido la dirección
+      if (!internal.source) {
+        if (Math.abs(rate) < MIN_ABS_RATE) return;
+        const pos = internal.positionAtLastUpdate;
+        const dur = internal.buffer.duration;
+        if (rate > 0 && pos >= dur - 0.01) return;
+        if (rate < 0 && pos <= 0.01) return;
+
+        const source = startSourceAt(internal, ctx, pos, rate < 0);
+        if (source) attachOnended(source, internal, id, ctx);
+        return;
+      }
+
+      // Cambio de signo → swap de buffer
+      if (oldSign !== newSign && oldSign !== 0 && newSign !== 0) {
+        const pos = Math.max(
+          0,
+          Math.min(internal.positionAtLastUpdate, internal.buffer.duration),
+        );
+        const oldSource = internal.source;
+        oldSource.onended = null;
+        try {
+          oldSource.stop();
+        } catch {
+          /* noop */
+        }
+        oldSource.disconnect();
+        internal.source = null;
+
+        const source = startSourceAt(internal, ctx, pos, rate < 0);
+        if (source) attachOnended(source, internal, id, ctx);
+      } else {
+        // Mismo signo → solo actualizar el rate (siempre positivo)
         internal.source.playbackRate.cancelScheduledValues(ctx.currentTime);
-        internal.source.playbackRate.value = rate;
+        internal.source.playbackRate.value = Math.max(
+          Math.abs(rate),
+          MIN_ABS_RATE,
+        );
       }
     },
-    [getCtx, freezePosition],
+    [getCtx, freezePosition, startSourceAt, attachOnended],
   );
 
   // ---------- Base rate (RPM) ----------
@@ -355,7 +488,10 @@ export function useAudioEngine() {
       if (internal.source && !internal.isScratching) {
         freezePosition(internal, ctx);
         internal.currentRate = baseRate;
-        internal.source.playbackRate.value = baseRate;
+        internal.source.playbackRate.value = Math.max(
+          Math.abs(baseRate),
+          MIN_ABS_RATE,
+        );
       }
     },
     [getCtx, freezePosition, patchTrack],
@@ -398,7 +534,7 @@ export function useAudioEngine() {
     if (internal) internal.isScratching = false;
   }, []);
 
-  // ---------- EQ ----------
+  // ---------- EQ / Pan / Reverb / Volume ----------
   const setTrackEQ = useCallback(
     (id: string, band: EQBand, value: number) => {
       const ctx = getCtx();
@@ -416,7 +552,6 @@ export function useAudioEngine() {
     [getCtx, patchTrack],
   );
 
-  // ---------- Pan (L/R) ----------
   const setTrackPan = useCallback(
     (id: string, pan: number) => {
       const ctx = getCtx();
@@ -429,14 +564,12 @@ export function useAudioEngine() {
     [getCtx, patchTrack],
   );
 
-  // ---------- Reverb (wet mix) ----------
   const setTrackReverb = useCallback(
     (id: string, amount: number) => {
       const ctx = getCtx();
       const internal = internalsRef.current.get(id);
       if (!internal) return;
       const clamped = Math.max(0, Math.min(1, amount));
-      // Dry y wet se ajustan complementariamente para no perder volumen
       internal.wetGain.gain.setTargetAtTime(clamped, ctx.currentTime, 0.05);
       internal.dryGain.gain.setTargetAtTime(
         1 - clamped * 0.4,
@@ -448,7 +581,6 @@ export function useAudioEngine() {
     [getCtx, patchTrack],
   );
 
-  // ---------- Volumen ----------
   const setTrackVolume = useCallback(
     (id: string, volume: number) => {
       const ctx = getCtx();
@@ -461,17 +593,13 @@ export function useAudioEngine() {
   );
 
   const setTrackCover = useCallback(
-    (id: string, coverUrl: string | null) => {
-      patchTrack(id, { coverUrl });
-    },
+    (id: string, coverUrl: string | null) => patchTrack(id, { coverUrl }),
     [patchTrack],
   );
 
-  // ---------- Tema por disco ----------
   const setTrackExtractedColors = useCallback(
-    (id: string, colors: [string, string]) => {
-      patchTrack(id, { themeColors: colors });
-    },
+    (id: string, colors: [string, string]) =>
+      patchTrack(id, { themeColors: colors }),
     [patchTrack],
   );
 
@@ -522,14 +650,16 @@ export function useAudioEngine() {
             if (!internal || !internal.source) return t;
 
             const pos = getPosition(internal, ctx);
+            const dur = t.duration;
 
-            if (pos >= t.duration - 0.03) {
+            // Fin natural (solo cuando NO se está haciendo scratch)
+            if (!internal.isScratching && pos >= dur - END_MARGIN) {
               freezePosition(internal, ctx);
               internal.source.onended = null;
               try {
                 internal.source.stop();
               } catch {
-                /* ya parado */
+                /* noop */
               }
               internal.source.disconnect();
               internal.source = null;
@@ -539,7 +669,47 @@ export function useAudioEngine() {
               return { ...t, isPlaying: false, currentTime: 0 };
             }
 
-            const newPos = Math.max(pos, 0);
+            // Clamp de bordes durante scratch
+            if (internal.isScratching) {
+              if (pos < 0) {
+                freezePosition(internal, ctx);
+                internal.positionAtLastUpdate = 0;
+                internal.ctxTimeAtLastUpdate = ctx.currentTime;
+                if (internal.source && internal.currentRate < 0) {
+                  const src = internal.source;
+                  src.onended = null;
+                  try {
+                    src.stop();
+                  } catch {
+                    /* noop */
+                  }
+                  src.disconnect();
+                  internal.source = null;
+                }
+                changed = true;
+                return { ...t, currentTime: 0 };
+              }
+              if (pos > dur) {
+                freezePosition(internal, ctx);
+                internal.positionAtLastUpdate = dur;
+                internal.ctxTimeAtLastUpdate = ctx.currentTime;
+                if (internal.source && internal.currentRate > 0) {
+                  const src = internal.source;
+                  src.onended = null;
+                  try {
+                    src.stop();
+                  } catch {
+                    /* noop */
+                  }
+                  src.disconnect();
+                  internal.source = null;
+                }
+                changed = true;
+                return { ...t, currentTime: dur };
+              }
+            }
+
+            const newPos = Math.max(0, Math.min(pos, dur));
             if (Math.abs(newPos - t.currentTime) > 0.05) {
               changed = true;
               return { ...t, currentTime: newPos };
@@ -570,9 +740,9 @@ export function useAudioEngine() {
     setTrackReverb,
     setTrackVolume,
     setTrackCover,
-    setTrackExtractedColors, // ← nuevo
-    setTrackThemeMode, // ← nuevo
-    setTrackCustomThemeColors, // ← nuevo
+    setTrackExtractedColors,
+    setTrackThemeMode,
+    setTrackCustomThemeColors,
     reorderTracks,
     beginScratch,
     endScratch,

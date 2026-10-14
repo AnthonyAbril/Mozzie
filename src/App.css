@@ -161,6 +161,8 @@ body {
   padding: 14px 20px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
+  position: relative;   /* ← nuevo */
+  z-index: 30;          /* ← nuevo, mayor que el rail (20) */
 }
 #play-pause {
   width: 44px;
