@@ -26,6 +26,8 @@ function App() {
     setTrackRate,
     setTrackBaseRateSmooth,
     setTrackEQ,
+    setTrackPan,       // ← nuevo
+    setTrackReverb,    // ← nuevo
     setTrackVolume,
     setTrackCover,
     beginScratch,
@@ -45,6 +47,9 @@ function App() {
   const eqLow = selectedTrack?.eq.low ?? 0;
   const eqMid = selectedTrack?.eq.mid ?? 0;
   const eqHigh = selectedTrack?.eq.high ?? 0;
+
+  const pan = selectedTrack?.pan ?? 0;
+  const reverb = selectedTrack?.reverb ?? 0;
 
   const handleOpenFile = () => fileInputRef.current?.click();
 
@@ -107,7 +112,24 @@ function App() {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!selectedTrackId) return;
       setTrackEQ(selectedTrackId, band, Number(e.target.value));
-    };
+  };
+
+  const handlePanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedTrackId) return;
+    setTrackPan(selectedTrackId, Number(e.target.value));
+  };
+
+  const handleReverbChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedTrackId) return;
+    setTrackReverb(selectedTrackId, Number(e.target.value));
+  };
+
+  /** Formatea el pan: L50 / C / R50 */
+  const formatPan = (v: number) => {
+    if (Math.abs(v) < 0.02) return 'C';
+    const side = v < 0 ? 'L' : 'R';
+    return `${side}${Math.round(Math.abs(v) * 100)}`;
+  };
 
   const handleSwipe = useCallback(
     (direction: 'left' | 'right') => {
@@ -274,49 +296,43 @@ function App() {
       <div id="right-rail">
         <aside id="right-sidebar">
           <div className="section">
-            <div className="section-title">Velocidad</div>
+            <div className="section-title">Balance</div>
 
-            {editingRpm ? (
-              <input
-                type="text"
-                className="rpm-input"
-                value={rpmDraft}
-                onChange={(e) => setRpmDraft(e.target.value)}
-                onBlur={commitEditRpm}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitEditRpm();
-                  if (e.key === 'Escape') setEditingRpm(false);
-                }}
-                autoFocus
-                disabled={!selectedTrack}
-              />
-            ) : (
-              <div
-                className="rpm-value"
-                onClick={startEditRpm}
-                title="Click para escribir un valor exacto"
-              >
-                {rpm.toFixed(2)}
+            <div className="slider-row">
+              <div className="slider-label">
+                <span>Pan</span>
+                <span className="value">{formatPan(pan)}</span>
               </div>
-            )}
-
-            <div
-              className="rpm-unit"
-              onClick={resetRpm}
-              title="Click para volver a 33.33 RPM"
-            >
-              RPM
+              <input
+                type="range"
+                min="-1"
+                max="1"
+                step="0.01"
+                value={pan}
+                disabled={!selectedTrack}
+                onChange={handlePanChange}
+              />
             </div>
+          </div>
 
-            <input
-              type="range"
-              min="8"
-              max="100"
-              step="0.1"
-              value={rpm}
-              disabled={!selectedTrack}
-              onChange={handleRpmChange}
-            />
+          <div className="section">
+            <div className="section-title">Reverb</div>
+
+            <div className="slider-row">
+              <div className="slider-label">
+                <span>Mezcla</span>
+                <span className="value">{Math.round(reverb * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={reverb}
+                disabled={!selectedTrack}
+                onChange={handleReverbChange}
+              />
+            </div>
           </div>
 
           <div className="section">
