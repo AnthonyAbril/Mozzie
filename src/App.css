@@ -38,6 +38,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   flex-shrink: 0;        /* ← no se aplasta */
+  padding-top: 36px;  /* opcional: alinea con la franja de botones */
 }
 
 #sidebar > button {
@@ -261,6 +262,7 @@ body {
   border-left: 1px solid var(--border);
   box-sizing: border-box;
   padding: 22px 18px 90px;        /* ← bottom padding para no tapar los controles */
+  padding-top: 50px;  /* opcional */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -562,4 +564,21 @@ body {
 .direction-toggle:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+
+.titlebar-drag {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 140px;           /* deja sitio a los botones de ventana */
+  height: 36px;           /* misma altura que titleBarOverlay */
+  -webkit-app-region: drag;
+  z-index: 9999;
+  pointer-events: auto;
+}
+
+/* Aseguramos que los elementos interactivos NO sean arrastrables */
+button, input, .track-item, #track-list {
+  -webkit-app-region: no-drag;
 }

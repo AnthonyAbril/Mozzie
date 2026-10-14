@@ -415,6 +415,7 @@ function App() {
 
   return (
     <>
+    <div className="titlebar-drag" />
       <div id="app">
         <aside id="sidebar">
           <button id="open-folder" onClick={handleOpenFile}>
