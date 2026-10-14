@@ -12,17 +12,23 @@
 }
 
 * { box-sizing: border-box; margin: 0; }
+html, body, #root {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 body {
   font-family: system-ui, sans-serif;
   background: var(--bg-primary);
   color: var(--text);
-  overflow: hidden;
 }
 
 #app {
   display: grid;
   grid-template-columns: 260px 1fr;
-  height: 100vh;
+  height: 100%;       /* ← antes 100vh */
+  min-height: 0;
 }
 
 #sidebar {
@@ -31,6 +37,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 0;        /* ← no se aplasta */
 }
 
 #sidebar > button {
@@ -43,6 +50,7 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease;
+  flex-shrink: 0;        /* ← no se aplasta */
 }
 #sidebar > button:hover {
   background: var(--primary-hover);
@@ -50,6 +58,7 @@ body {
 
 #track-list {
   flex: 1;
+  min-height: 0;         /* ← CLAVE: permite que encoja en vez de empujar */
   overflow-y: auto;
   list-style: none;
   padding: 0 8px;
@@ -150,7 +159,11 @@ body {
   color: #fff;
 }
 
-#main { display: grid; grid-template-rows: 1fr auto; }
+#main {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 0;
+}
 #viewport { position: relative; min-height: 0; }
 #viewport canvas { display: block; }
 
@@ -201,6 +214,7 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;        /* ← no se aplasta */
 }
 .customize-btn:hover {
   background: var(--bg-hover);
@@ -212,6 +226,7 @@ body {
   position: fixed;
   top: 0;
   right: 0;
+  height: 100%;          /* ← antes 100vh */
   height: 100vh;
   width: 26px;
   z-index: 20;
@@ -242,7 +257,7 @@ body {
   top: 0;
   right: 0;
   width: 240px;
-  height: 100vh;
+  height: 100%;          /* ← antes 100vh */
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   box-sizing: border-box;
