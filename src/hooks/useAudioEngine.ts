@@ -639,13 +639,25 @@ export function useAudioEngine() {
     (id: string, mode: "disc" | "custom") => {
       setTracks((prev) => {
         const track = prev.find((t) => t.id === id);
-        if (track) {
-          saveDiscTheme(track.stableKey, {
-            mode,
-            customColors: track.customThemeColors,
-          });
+        if (!track) return prev;
+
+        // Si pasamos a 'custom' y todavía no hay colores personalizados,
+        // heredamos los colores extraídos de la portada como punto de partida.
+        let nextCustom = track.customThemeColors;
+        if (mode === "custom" && !nextCustom && track.themeColors) {
+          nextCustom = [...track.themeColors] as [string, string];
         }
-        return prev.map((t) => (t.id === id ? { ...t, themeMode: mode } : t));
+
+        saveDiscTheme(track.stableKey, {
+          mode,
+          customColors: nextCustom,
+        });
+
+        return prev.map((t) =>
+          t.id === id
+            ? { ...t, themeMode: mode, customThemeColors: nextCustom }
+            : t,
+        );
       });
     },
     [],
@@ -767,7 +779,7 @@ export function useAudioEngine() {
     setTrackRate,
     setTrackBaseRate,
     setTrackBaseRateSmooth,
-    setTrackDirection,      // ← AÑADE ESTA LÍNEA
+    setTrackDirection, // ← AÑADE ESTA LÍNEA
     setTrackEQ,
     setTrackPan,
     setTrackReverb,

@@ -1,18 +1,15 @@
 {
-  "name": "react-mui-three-electron-template",
+  "name": "mozzie",
   "version": "0.1.0",
   "main": "electron/main.cjs",
   "license": "Unlicense",
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"vite --port 5555\" \"wait-on http://localhost:5555 && electron .\"",
-    "build": "npm run build-prepare && electron-builder -p never",
-    "build-win": "npm run build-prepare && electron-builder -p never -w",
-    "build-mac": "npm run build-prepare && electron-builder -p never -m",
-    "build-linux": "npm run build-prepare && electron-builder -p never -l",
-    "build-prepare": "tsc && vite build",
+    "build": "vite build",
+    "electron:build": "pnpm build && electron-builder --win -p never",
+    "build-win": "electron-builder --win -p never",
     "serve": "vite preview",
-    "lint": "tsc --noEmit && eslint .",
-    "format": "eslint . --fix"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": {
     "name": "Sv443",
@@ -72,10 +69,5 @@
     "typescript-eslint": "^8.38.0",
     "vite": "^6.3.5",
     "wait-on": "^9.5.1"
-  },
-  "debug": {
-    "env": {
-      "VITE_DEV_SERVER_URL": "http://127.0.0.1:3010"
-    }
   }
 }

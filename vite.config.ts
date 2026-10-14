@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  base: './',                    // ← ESTA LÍNEA ES OBLIGATORIA
   resolve: {
     // MATA el bug de "Multiple instances of Three.js"
     dedupe: ['three', '@react-three/fiber', '@react-three/drei', 'react', 'react-dom'],

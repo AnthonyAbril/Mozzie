@@ -175,6 +175,37 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalTheme.satBoost, globalTheme.brightness]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      const t = e.target as HTMLElement;
+      // No interferir con inputs de texto
+      if (
+        t?.tagName === 'INPUT' ||
+        t?.tagName === 'TEXTAREA' ||
+        t?.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      const s = stateRef.current;
+      if (s.selectedTrack) toggleTrack(s.selectedTrack.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleTrack]);
+
+  useEffect(() => {
+    const pending = tracks.filter(
+      (t) => t.themeMode === "custom" && !t.customThemeColors && t.themeColors,
+    );
+    if (pending.length === 0) return;
+    pending.forEach((t) => {
+      setTrackCustomThemeColors(t.id, [...t.themeColors!] as [string, string]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks]);
+
   const handleOpenFile = () => fileInputRef.current?.click();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -510,51 +541,51 @@ function App() {
       {/* ── Rail derecho desplegable ── */}
       <div id="right-rail">
         <aside id="right-sidebar">
-             <div className="section">
-  <div className="section-title">Velocidad</div>
+          <div className="section">
+            <div className="section-title">Velocidad</div>
 
-  {editingRpm ? (
-    <input
-      type="text"
-      className="rpm-input"
-      value={rpmDraft}
-      onChange={(e) => setRpmDraft(e.target.value)}
-      onBlur={commitEditRpm}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') commitEditRpm();
-        if (e.key === 'Escape') setEditingRpm(false);
-      }}
-      autoFocus
-      disabled={!selectedTrack}
-    />
-  ) : (
-    <div
-      className="rpm-value"
-      onClick={startEditRpm}
-      title="Click para escribir un valor exacto"
-    >
-      {rpm.toFixed(2)}
-    </div>
-  )}
+            {editingRpm ? (
+              <input
+                type="text"
+                className="rpm-input"
+                value={rpmDraft}
+                onChange={(e) => setRpmDraft(e.target.value)}
+                onBlur={commitEditRpm}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitEditRpm();
+                  if (e.key === "Escape") setEditingRpm(false);
+                }}
+                autoFocus
+                disabled={!selectedTrack}
+              />
+            ) : (
+              <div
+                className="rpm-value"
+                onClick={startEditRpm}
+                title="Click para escribir un valor exacto"
+              >
+                {rpm.toFixed(2)}
+              </div>
+            )}
 
-  <div
-    className="rpm-unit"
-    onClick={resetRpm}
-    title="Click para volver a 33.33 RPM"
-  >
-    RPM
-  </div>
+            <div
+              className="rpm-unit"
+              onClick={resetRpm}
+              title="Click para volver a 33.33 RPM"
+            >
+              RPM
+            </div>
 
-  <input
-    type="range"
-    min="8"
-    max="100"
-    step="0.1"
-    value={rpm}
-    disabled={!selectedTrack}
-    onChange={handleRpmChange}
-  />
-</div> 
+            <input
+              type="range"
+              min="8"
+              max="100"
+              step="0.1"
+              value={rpm}
+              disabled={!selectedTrack}
+              onChange={handleRpmChange}
+            />
+          </div>
 
           <div className="section">
             <div className="section-title">Balance</div>
