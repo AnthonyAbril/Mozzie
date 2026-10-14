@@ -621,3 +621,77 @@ button, input, .track-item, #track-list {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+
+
+
+/* ===== Scrollbars personalizados ===== */
+
+/* Firefox (por si algún día se abre en navegador) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary) transparent;
+}
+
+/* Chromium / Electron */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.15s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--primary-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Variante más fina y discreta para el sidebar de pistas */
+#track-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#track-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  background-clip: border-box;
+}
+
+#track-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Variante para el sidebar derecho (que ya tiene tema de color) */
+#right-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+#right-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border: none;
+  background-clip: border-box;
+}
+
+#right-sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+  background-clip: border-box;
+}
