@@ -2,6 +2,11 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { loadAllDiscThemes, saveDiscTheme } from "../utils/themeStorage";
 
 export type EQBand = "low" | "mid" | "high";
+export type PlayMode = "single" | "continuous" | "loop";
+
+interface EngineOptions {
+  onTrackEnd?: (trackId: string) => void;
+}
 
 export interface Track {
   id: string;
@@ -60,7 +65,10 @@ function createImpulseResponse(ctx: AudioContext, duration = 2.2, decay = 2.4) {
   return impulse;
 }
 
-export function useAudioEngine() {
+export function useAudioEngine(options: EngineOptions = {}) {
+  const onTrackEndRef = useRef(options.onTrackEnd);
+  onTrackEndRef.current = options.onTrackEnd;
+
   const ctxRef = useRef<AudioContext | null>(null);
   const internalsRef = useRef<Map<string, TrackInternal>>(new Map());
   const baseRateAnimationsRef = useRef<Map<string, number>>(new Map());
@@ -687,6 +695,8 @@ export function useAudioEngine() {
     const tick = () => {
       const ctx = ctxRef.current;
       if (ctx) {
+        const endedTracks: string[] = [];
+
         setTracks((prev) => {
           let changed = false;
           const next = prev.map((t) => {
@@ -710,6 +720,7 @@ export function useAudioEngine() {
               internal.positionAtLastUpdate = 0;
               internal.ctxTimeAtLastUpdate = ctx.currentTime;
               changed = true;
+              endedTracks.push(t.id); // ← marcar para notificar
               return { ...t, isPlaying: false, currentTime: 0 };
             }
 
@@ -762,6 +773,11 @@ export function useAudioEngine() {
           });
           return changed ? next : prev;
         });
+
+        // Notificar fuera del updater (importante)
+        for (const id of endedTracks) {
+          onTrackEndRef.current?.(id);
+        }
       }
       rafId = requestAnimationFrame(tick);
     };

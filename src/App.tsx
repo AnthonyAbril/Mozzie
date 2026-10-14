@@ -2,7 +2,10 @@ import * as THREE from "three";
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { ScratchableVinyl, ResponsiveCamera } from './components/ScratchableVinyl';
+import {
+  ScratchableVinyl,
+  ResponsiveCamera,
+} from "./components/ScratchableVinyl";
 import { useAudioEngine, type Track } from "./hooks/useAudioEngine";
 import { getCoverArt } from "./utils/coverArt";
 
@@ -16,6 +19,18 @@ import { Reorder } from "framer-motion";
 import "./App.css";
 
 const RPM_BASE = 33.333;
+
+const PLAY_MODE_LABEL: Record<'single' | 'continuous' | 'loop', string> = {
+  single: 'Solo (se detiene al terminar)',
+  continuous: 'Seguido (pasa a la siguiente pista)',
+  loop: 'Bucle (se repite indefinidamente)',
+};
+
+const PLAY_MODE_ICON: Record<'single' | 'continuous' | 'loop', string> = {
+  single: '⏹',
+  continuous: '⏭',
+  loop: '🔁',
+};
 
 function formatTime(seconds: number) {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -71,39 +86,81 @@ const TrackItem = memo(function TrackItem({
 });
 
 function App() {
+  // ── 1. Hooks base y state ──
+  const { globalTheme, setGlobalTheme } = useTheme();
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [editingRpm, setEditingRpm] = useState(false);
+  const [rpmDraft, setRpmDraft] = useState("");
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const controlsRef = useRef<any>(null);
+
+  // ── 2. Refs para el callback del engine (deben ir ANTES del engine) ──
+  const stateRef = useRef<any>(null);
+  const playTrackRef = useRef<((id: string) => void) | null>(null);
+  const pauseTrackRef = useRef<((id: string) => void) | null>(null);
+
+  // ── 3. ÚNICA llamada al engine, con el callback ──
   const {
     tracks,
     addTrack,
     toggleTrack,
     playTrack,
-    pauseTrack, // ← asegúrate de que está
+    pauseTrack,
     seekTrack,
     setTrackRate,
     setTrackBaseRateSmooth,
-    setTrackDirection, // ← nuevo
+    setTrackDirection,
     setTrackEQ,
     setTrackPan,
     setTrackReverb,
     setTrackVolume,
     setTrackCover,
-    setTrackExtractedColors, // ← nuevo
-    setTrackThemeMode, // ← nuevo
-    setTrackCustomThemeColors, // ← nuevo
+    setTrackExtractedColors,
+    setTrackThemeMode,
+    setTrackCustomThemeColors,
     reorderTracks,
     beginScratch,
     endScratch,
-  } = useAudioEngine();
+  } = useAudioEngine({
+    onTrackEnd: (id) => {
+      const s = stateRef.current;
+      if (!s) return;
+      const mode = s.playMode as "single" | "continuous" | "loop";
 
-  const { globalTheme, setGlobalTheme } = useTheme();
-  const [customizeOpen, setCustomizeOpen] = useState(false);
+      if (mode === "loop") {
+        playTrackRef.current?.(id);
+        return;
+      }
 
-  const [editingRpm, setEditingRpm] = useState(false);
-  const [rpmDraft, setRpmDraft] = useState("");
+      if (mode === "continuous") {
+        const list = s.tracks;
+        const idx = list.findIndex((t: any) => t.id === id);
+        if (idx < 0 || list.length === 0) return;
+        const nextIdx = (idx + 1) % list.length;
+        const nextTrack = list[nextIdx];
 
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const controlsRef = useRef<any>(null);
+        setSelectedTrackId(nextTrack.id);
 
+        if (s.singlePlayback) {
+          list.forEach((t: any) => {
+            if (t.id !== nextTrack.id && t.isPlaying) {
+              pauseTrackRef.current?.(t.id);
+            }
+          });
+        }
+        playTrackRef.current?.(nextTrack.id);
+        return;
+      }
+      // 'single': no hacer nada, se queda esperando
+    },
+  });
+
+  // ── 4. Actualizar refs con las funciones del engine en cada render ──
+  playTrackRef.current = playTrack;
+  pauseTrackRef.current = pauseTrack;
+
+  // ── 5. Derivados ──
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId) ?? null;
 
   const rpm = (selectedTrack?.baseRate ?? 1) * RPM_BASE;
@@ -113,6 +170,15 @@ function App() {
 
   const pan = selectedTrack?.pan ?? 0;
   const reverb = selectedTrack?.reverb ?? 0;
+
+  // ── 6. stateRef actualizado cada render ──
+  stateRef.current = {
+    tracks,
+    selectedTrackId,
+    selectedTrack,
+    singlePlayback: globalTheme.singlePlayback,
+    playMode: globalTheme.playMode,
+  };
 
   const effectiveTheme = useMemo(() => {
     if (globalTheme.discThemeMode && selectedTrack) {
@@ -177,12 +243,12 @@ function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || e.repeat) return;
+      if (e.code !== "Space" || e.repeat) return;
       const t = e.target as HTMLElement;
       // No interferir con inputs de texto
       if (
-        t?.tagName === 'INPUT' ||
-        t?.tagName === 'TEXTAREA' ||
+        t?.tagName === "INPUT" ||
+        t?.tagName === "TEXTAREA" ||
         t?.isContentEditable
       ) {
         return;
@@ -191,8 +257,8 @@ function App() {
       const s = stateRef.current;
       if (s.selectedTrack) toggleTrack(s.selectedTrack.id);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [toggleTrack]);
 
   useEffect(() => {
@@ -243,6 +309,15 @@ function App() {
     if (!selectedTrack) return;
     setTrackVolume(selectedTrack.id, Number(e.target.value));
   };
+
+const handlePlayModeCycle = useCallback(() => {
+  const modes: ('single' | 'continuous' | 'loop')[] = [
+    'single', 'continuous', 'loop',
+  ];
+  const idx = modes.indexOf(globalTheme.playMode);
+  const next = modes[(idx + 1) % modes.length];
+  setGlobalTheme({ playMode: next });
+}, [globalTheme.playMode, setGlobalTheme]);
 
   const handleRpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedTrackId) return;
@@ -378,15 +453,6 @@ function App() {
     tick();
   }, [selectedTrackId, selectedTrack, setTrackRate, endScratch]);
 
-  // En App(), arriba del return:
-  const stateRef = useRef<any>(null);
-  stateRef.current = {
-    tracks,
-    selectedTrackId,
-    selectedTrack,
-    singlePlayback: globalTheme.singlePlayback,
-  };
-
   const handleSelectTrack = useCallback(
     (id: string) => {
       const s = stateRef.current;
@@ -415,7 +481,7 @@ function App() {
 
   return (
     <>
-    <div className="titlebar-drag" />
+      <div className="titlebar-drag" />
       <div id="app">
         <aside id="sidebar">
           <button id="open-folder" onClick={handleOpenFile}>
@@ -507,6 +573,18 @@ function App() {
             >
               {selectedTrack?.isPlaying ? "⏸" : "▶"}
             </button>
+
+            {/* ── NUEVO: botón cíclico de modo de reproducción ── */}
+            <button
+              id="playmode-btn"
+              className={globalTheme.playMode !== 'single' ? 'active' : ''}
+              onClick={handlePlayModeCycle}
+              title={PLAY_MODE_LABEL[globalTheme.playMode]}
+              aria-label={PLAY_MODE_LABEL[globalTheme.playMode]}
+            >
+              {PLAY_MODE_ICON[globalTheme.playMode]}
+            </button>
+
             <span id="time-current">
               {formatTime(selectedTrack?.currentTime ?? 0)}
             </span>

@@ -3,6 +3,8 @@ export interface StoredDiscTheme {
   customColors: [string, string] | null;
 }
 
+export type PlayMode = 'single' | 'continuous' | 'loop';
+
 export interface StoredGlobalTheme {
   primary: string;
   themeColor1: string;
@@ -10,7 +12,8 @@ export interface StoredGlobalTheme {
   discThemeMode: boolean;
   satBoost: number;
   brightness: number;
-  singlePlayback: boolean;    // ← nuevo
+  singlePlayback: boolean;    
+  playMode: PlayMode;         // ← nuevo
 }
 
 export const DEFAULT_GLOBAL_THEME: StoredGlobalTheme = {
@@ -21,6 +24,7 @@ export const DEFAULT_GLOBAL_THEME: StoredGlobalTheme = {
   satBoost: 1.15,
   brightness: 0,
   singlePlayback: false,      // ← por defecto, multi-play (como ahora)
+  playMode: 'single',         // ← por defecto: se queda esperando
 };
 
 const DISCS_KEY = 'mozzie:discThemes';

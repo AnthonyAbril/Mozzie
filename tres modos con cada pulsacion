@@ -1,0 +1,281 @@
+[33mcommit d63b6f8fabbddc8459803dbc7631275cc5547c74[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 22:20:06 2026 +0200
+
+    feat: ventana con barra de titulo oculta estilo Spotify
+    
+    - Menu.setApplicationMenu(null) para eliminar File/Edit/View/Window/Help
+    - titleBarStyle hidden + titleBarOverlay para ocultar el titulo 'Mozzie'
+      pero mantener los botones nativos minimizar/maximizar/cerrar con color
+      acorde al tema oscuro (#15151b con simbolos #eee)
+    - .titlebar-drag: franja superior de 36px con -webkit-app-region drag
+      para poder mover la ventana, dejando 140px libres a la derecha para
+      los botones nativos
+    - no-drag en botones, inputs, .track-item y #track-list para que los
+      controles sigan siendo clicables pese al drag region global
+
+[33mcommit 011eba85e5a71891e1bb84ca7d0f245eb0a6f387[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 11:08:48 2026 +0200
+
+    fix: exportar ResponsiveCamera y limpiar CSS
+    
+    - ResponsiveCamera se declaro sin export, por lo que App.tsx la importaba
+      como undefined y React la ignoraba silenciosamente. Por eso el ajuste
+      de FOV adaptativo no tenia ningun efecto y el vinilo seguia saliendose
+      del viewport en ventanas estrechas
+    - #right-rail: eliminado height duplicado (100% + 100vh), queda solo 100vh
+    - #sidebar: reemplazado flex-shrink:0 (que no aplica en grid items) por
+      min-height:0 que es lo que permite al hijo flex encoger correctamente
+
+[33mcommit 47414ce5e27b29829e6f1ec6d7b78844a3d68a6c[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 09:46:52 2026 +0200
+
+    fix: layout robusto al redimensionar la ventana
+    
+    Electron:
+    - Ventana con minWidth 900 y minHeight 600 para que no se pueda
+      encoger hasta dejar el layout inutilizable
+    
+    CSS:
+    - html/body/#root con height 100% y min-height 0
+    - #app con height 100% en lugar de 100vh y min-height 0
+    - #sidebar con min-height 0 y flex-shrink 0 en sus botones: los botones
+      de arriba y abajo quedan siempre visibles, solo la lista encoge
+    - #track-list con min-height 0, que es lo que permite el shrink real
+      dentro del contenedor flex (por defecto flex:1 no encoge por debajo
+      del contenido sin esta propiedad)
+    - #main con min-height 0
+    - #right-sidebar y #right-rail con height 100% en lugar de 100vh
+      para coherencia con el resto del layout
+
+[33mcommit f2ce840d4ad78243a6b1e4c6dbdcbc4ecdfb2dd2[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 09:34:15 2026 +0200
+
+    fix: espacio para play/pause y sidebar que tapaba los controles
+    
+    - Espacio: listener global de keydown que hace toggleTrack de la pista
+      seleccionada. Ignora inputs de texto para no interferir con la edicion
+      del RPM o los sliders. Usa stateRef para no re-registrar el listener en
+      cada re-render
+    
+    - Sidebar derecho: padding-bottom de 90px para que el ultimo slider
+      (Agudos) no quede debajo de la barra de controles. z-index del sidebar
+      bajado a 25 (por debajo de los controles en 30) para que el volumen
+      siempre quede accesible aunque el sidebar este abierto
+
+[33mcommit 03eb617d7c6ea3df4536aaccef30ed67ee3f71a3[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 05:07:13 2026 +0200
+
+    fix: restaurar slider de RPM en el sidebar derecho
+    
+    El bloque Velocidad con el slider, el valor clickable y el reset a
+    33.33 RPM se perdio en un refactor anterior. Vuelve a estar presente
+    al principio del panel, con los handlers handleRpmChange, startEditRpm,
+    commitEditRpm y resetRpm que ya estaban definidos pero sin usar.
+
+[33mcommit fca09b1b3439da87084f49f3e8e423c33f6b0ba6[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 04:51:53 2026 +0200
+
+    feat: toggle de direccion de reproduccion (adelante/atras)
+    
+    Motor de audio:
+    - Track y TrackInternal ahora tienen direction: 1 | -1
+    - playTrack resetea al final si direccion=+1 o al principio si direccion=-1
+    - setTrackBaseRate respeta la direccion al cambiar el rate en vivo
+    - setTrackDirection cambia el signo del rate y reutiliza setTrackRate
+      para hacer el swap de buffer si es necesario
+    - onScratchEnd calcula el rate objetivo segun la direccion actual, asi
+      al soltar el vinilo vuelve a la direccion configurada, no siempre a
+      forward
+    
+    UI:
+    - Nueva seccion Direccion en el sidebar derecho con un boton toggle
+    - Estado visual: reverse con fondo primario y texto blanco
+    - El boton solo se habilita con pista seleccionada
+
+[33mcommit 701f8a1bbc97c9806d28af3ccf9c340c9dbdebf1[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 04:45:18 2026 +0200
+
+    feat: scratch en reversa con buffer invertido
+    
+    Motor de audio:
+    - Cada pista ahora puede tener dos AudioBuffers: normal e invertido
+    - El buffer invertido se crea de forma diferida (1.5s tras cargar) para
+      no bloquear el arranque ni consumir RAM si el usuario nunca retrocede
+    - setTrackRate detecta cambio de signo y hace swap de buffer: para
+      retroceder se reproduce el buffer invertido con playbackRate positivo,
+      evitando el bug de Chromium con rates negativos que silencia el audio
+    - startSourceAt calcula el offset según el buffer activo:
+        normal:    offset = position
+        invertido: offset = duration - position
+    - attachOnended distingue entre fin natural (reset de posición) y fin
+      durante scratch (clamp sin reset, el usuario puede seguir arrastrando)
+    - RAF clampa los bordes 0 y duration durante scratch, deteniendo el source
+      al llegar al extremo para no salir del buffer
+    - seekTrack respeta la dirección actual al recrear el source
+    - MIN_ABS_RATE = 0.001 evita el 0 exacto que congela Chromium
+    
+    UI:
+    - #controls con position relative + z-index 30 para quedar siempre por
+      encima del rail derecho; el slider de volumen deja de quedar tapado
+      cuando el sidebar se despliega
+    
+    Resultado: el scratch hacia atrás suena por fin, con transiciones limpias
+    al cruzar el cero y sin clicks ni huecos.
+
+[33mcommit 83d5a8d82383dc070ad14b7c8e0f4fb125226379[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 04:36:28 2026 +0200
+
+    feat: single playback, drag&drop con animacion y transicion suave del boton
+    
+    Reproduccion exclusiva (opcional):
+    - Toggle 'Solo una cancion a la vez' en Personalizacion
+    - Se persiste en localStorage como parte del tema global
+    - Aplica a: carga de archivo, clic en sidebar y swipe del vinilo
+    - Si esta desactivado (default), se mantiene el multi-play actual
+    
+    Drag & drop en la sidebar:
+    - framer-motion Reorder.Group con axis y
+    - TrackItem memoizado con callbacks estables via stateRef para no romper
+      la memoizacion por re-renders durante la reproduccion
+    - Animacion whileDrag: scale 1.03, sombra, cursor grabbing
+    - Reorden visual con spring automatico de framer-motion
+    - reorderTracks expuesto por useAudioEngine
+    
+    Transicion del boton play/pausa:
+    - max-width + padding + opacity animados en lugar de display:none
+    - 280ms con cubic-bezier(0.4, 0, 0.2, 1) para coherencia con el rail
+    - Al expandir, el nombre de la pista se desplaza suavemente
+    
+    Limpieza:
+    - #sidebar > button para no afectar los botones dentro de cada pista
+    - .track-item reemplaza los selectores #track-list li
+    - Selectores del status button ahora usan la clase del item
+
+[33mcommit 9de8fe20ba2fa25c9b349d3bedcc0ef85a1f7be9[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 03:19:03 2026 +0200
+
+    feat: pan L/R y reverb por pista en el sidebar derecho
+    
+    - Cadena de audio: gain → lowShelf → midPeak → highShelf → panner → (dry | wet → convolver) → destination
+    - setTrackPan: StereoPannerNode, -1 a 1, con label L/C/R en la UI
+    - setTrackReverb: convolver con impulso sintético de 2.2s + balance dry/wet automático
+    - Nuevas secciones 'Balance' y 'Reverb' en el sidebar derecho
+    - Detención limpia al final de pista y seek al extremo derecho
+
+[33mcommit a9e680d9a3e1dc554a69c8c7551760e572ae782a[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 03:01:43 2026 +0200
+
+    feat: rail desplegable con RPM suave, EQ y detención al final de pista
+    
+    Sidebar derecho desplegable:
+    - Rail de activación de 26px con pista visual (línea azul) en el borde
+    - Panel de 240px que se desliza con translateX al hacer hover
+    - Animación de 280ms con cubic-bezier
+    
+    Control de RPM:
+    - Slider 8-100 RPM con interpolación suave (easeOutCubic, 400ms)
+    - Click en el valor numérico para editarlo como texto (Enter/Blur aplica, Esc cancela)
+    - Click en 'RPM' resetea suavemente a 33.33
+    - Bandera isScratching para que el scratch tenga prioridad sobre animaciones
+    - Giro visual del vinilo sincronizado con el baseRate real
+    
+    Ecualizador:
+    - Cadena por pista: gain → lowshelf(200Hz) → peaking(1kHz) → highshelf(3.5kHz) → destination
+    - Tres bandas ±12 dB con feedback visual en dB
+    
+    Fix fin de pista:
+    - Detección en el RAF: si pos >= duration - 30ms, limpiar source y resetear a 0
+    - playTrack detecta posición al final y reinicia desde 0
+    - seekTrack al extremo derecho deja la pista parada en 0
+    - Ya no depende de onended, evitando desincronizaciones
+
+[33mcommit a4f7afdc2be2e524acc1c697f55fc9df490e9358[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 02:24:45 2026 +0200
+
+    feat: scratch interactivo, swipe entre pistas y controles refinados
+    
+    Scratch con clic izquierdo:
+    - Detección inicial contra la malla del disco (pointerdown)
+    - Cálculo del ángulo sobre un plano infinito horizontal: el scratch sigue
+      funcionando aunque el cursor salga del vinilo
+    - Rate ligado a la velocidad angular (rad/s) normalizada a 33⅓ RPM
+    - Detección de ratón inactivo (>50 ms sin pointermove) → detiene el audio
+      automáticamente mientras se mantiene pulsado
+    - Cursor oculto durante el gesto
+    - Ramp suave de vuelta a 1x al soltar (80 ms)
+    
+    Navegación entre pistas con clic derecho:
+    - Arrastre horizontal con interpolación suave (damping 0.18)
+    - Inclinación en Z proporcional al desplazamiento (efecto 'coger la carta')
+    - Al soltar pasado el umbral: slide-out hacia un lado, cambio de pista,
+      slide-in desde el lado opuesto
+    - Al soltar sin pasar el umbral: retorno suave al centro sin cambiar pista
+    
+    Controles de cámara:
+    - Órbita movida al botón central (rueda del ratón)
+    - Botones izquierdo y derecho liberados para scratch y swipe
+    
+    Electron:
+    - context-menu del webContents bloqueado para no interferir con el gesto
+    
+    Nota conocida: el retroceso en scratch (playbackRate negativo) sigue mudo
+    en Chromium; pendiente de resolver con buffer invertido + crossfade.
+
+[33mcommit f199e287aae481543ed3675b97602c735541f04e[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 01:45:53 2026 +0200
+
+    feat: pila de pistas independientes con reproducción simultánea
+    
+    - useAudioEngine: array de pistas, cada una con su AudioBufferSourceNode
+      y su GainNode, todos compartiendo un único AudioContext
+    - Posición por pista gestionada por integración (buffer + rate * dt)
+    - Sidebar acumulativa: cada canción añadida queda seleccionable; las
+      pistas anteriores siguen sonando en paralelo
+    - App.tsx: selección de pista controla qué vinilo se muestra y qué
+      controles actúan, sin afectar al audio de las demás
+    - Estilos para lista con indicador ▶ en pistas activas
+
+[33mcommit fe5bbc81e5d6e0182e6e011e4f8756081c98b0b3[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 01:32:51 2026 +0200
+
+    feat: carga de carátulas embebidas y por búsqueda online
+    
+    - Vinyl 3D con etiqueta central, marcadores de rotación y soporte para textura
+    - Hook useAudioPlayer con Web Audio API (play/pause/seek/volume)
+    - utils/coverArt.ts: extrae carátula de tags ID3 con jsmediatags; si no la
+      encuentra, la busca en iTunes Search API y la sirve como blob URL
+    - App.tsx: sidebar con nombre de archivo actual y feedback de búsqueda
+    - vite.config.ts: optimizeDeps.exclude para jsmediatags
+    - Cámara ajustada a [0, 14, 18]
+
+[33mcommit 4338c075099a0aa6b10b4c363267745758770784[m
+Author: Anthony Abril <antabrrue@alu.edu.gva.es>
+Date:   Wed Oct 14 01:11:34 2026 +0200
+
+    feat: reproductor de vinilo 3D con audio funcional
+    
+    - Setup: Vite + React + Electron con scripts concurrently/wait-on
+    - Escena 3D: vinilo giratorio con react-three-fiber y drei
+    - Hook useAudioPlayer: Web Audio API con play/pause/seek/volume
+    - UI: sidebar de archivos, viewport 3D y barra de controles
+    - Cámara orbital con clic derecho; clic izquierdo reservado para scratch
+    - Marcadores visuales en el disco para apreciar la rotación
+
+[33mcommit a0dcbfd8b91513567809a4513815dbf5d5bc0a8b[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Anthony Abril <148873885+AnthonyAbril@users.noreply.github.com>
+Date:   Tue Oct 13 22:30:48 2026 +0200
+
+    Initial commit

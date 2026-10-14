@@ -582,3 +582,42 @@ body {
 button, input, .track-item, #track-list {
   -webkit-app-region: no-drag;
 }
+
+
+
+
+
+#playmode-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+#playmode-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+}
+
+#playmode-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+#playmode-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
