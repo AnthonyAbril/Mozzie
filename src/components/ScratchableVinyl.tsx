@@ -6,6 +6,7 @@ import * as THREE from 'three';
 interface Props {
   isPlaying: boolean;
   coverUrl: string | null;
+  baseRate: number; // ← NUEVO
   onScratchStart: () => void;
   onScratchRate: (rate: number) => void;
   onScratchEnd: () => void;
@@ -16,6 +17,12 @@ const RADS_PER_SEC_33 = (33.333 / 60) * 2 * Math.PI;
 const SWIPE_THRESHOLD_PX = 100;
 const SLIDE_OUT_DISTANCE = 14;
 const SLIDE_DAMPING = 0.18;
+
+const DEFAULT_CAM_POS = new THREE.Vector3(0, 14, 18);
+const DEFAULT_TARGET = new THREE.Vector3(0, 0, 0);
+const RESET_DURATION_MS = 400;
+const MIDDLE_DOUBLE_CLICK_MS = 350;
+const MIDDLE_DOUBLE_CLICK_MAX_DIST = 6;
 
 function LabelWithCover({ url }: { url: string }) {
   const texture = useTexture(url);
@@ -39,6 +46,7 @@ function LabelPlaceholder() {
 export function ScratchableVinyl({
   isPlaying,
   coverUrl,
+  baseRate,
   onScratchStart,
   onScratchRate,
   onScratchEnd,
@@ -55,32 +63,56 @@ export function ScratchableVinyl({
     swipeOffset: 0,
     swipeTarget: 0,
     pendingSwipe: null as 'left' | 'right' | null,
+    lastMiddleClick: null as { time: number; x: number; y: number } | null,
   });
 
-  const { camera, gl } = useThree();
+  const reset = useRef({
+    active: false,
+    startTime: 0,
+    fromPos: new THREE.Vector3(),
+    fromTarget: new THREE.Vector3(),
+  });
+
+  const { camera, gl, controls } = useThree();
 
   useFrame((_, delta) => {
     const s = state.current;
+    const r = reset.current;
+    const ctrl = controls as any;
+
+    // ── 1. Auto-rotación del disco (SIEMPRE, independiente del reset)
+    if (groupRef.current && s.mode !== 'scratch' && isPlaying) {
+      groupRef.current.rotation.y += delta * RADS_PER_SEC_33 * baseRate;
+    }
+
+    // ── 2. Animación de reset de cámara (no corta el resto)
+    if (r.active) {
+      const t = Math.min(
+        (performance.now() - r.startTime) / RESET_DURATION_MS,
+        1
+      );
+      const eased = 1 - Math.pow(1 - t, 3);
+
+      camera.position.lerpVectors(r.fromPos, DEFAULT_CAM_POS, eased);
+      if (ctrl) {
+        ctrl.target.lerpVectors(r.fromTarget, DEFAULT_TARGET, eased);
+        ctrl.update();
+      }
+      if (t >= 1) {
+        r.active = false;
+        if (ctrl) ctrl.enabled = true;
+      }
+    }
+
     if (!groupRef.current) return;
 
-    // Auto-rotación cuando suena y no se está haciendo scratch
-    if (s.mode !== 'scratch' && isPlaying) {
-      groupRef.current.rotation.y += delta * 1.5;
-    }
-
-    // ── NUEVO: si estamos en scratch y el ratón lleva >50ms sin moverse, detener
+    // ── 3. Detección de ratón quieto durante scratch
     if (s.mode === 'scratch') {
       const idle = performance.now() - s.lastTime;
-      if (idle > 50) {
-      // Decaimiento exponencial hacia 0
-      const currentRate = s.lastReportedRate ?? 0;
-      const decayed = currentRate * Math.max(0, 1 - (idle - 50) / 200);
-      const stopped = Math.abs(decayed) < 0.01 ? 0.001 : decayed;
-      onScratchRate(stopped);
-    }
+      if (idle > 50) onScratchRate(0.001);
     }
 
-    // Interpolación suave del swipe
+    // ── 4. Interpolación del swipe
     const diff = s.swipeTarget - s.swipeOffset;
     s.swipeOffset += diff * SLIDE_DAMPING;
     if (Math.abs(diff) < 0.01) s.swipeOffset = s.swipeTarget;
@@ -88,7 +120,6 @@ export function ScratchableVinyl({
     groupRef.current.position.x = s.swipeOffset;
     groupRef.current.rotation.z = -s.swipeOffset * 0.04;
 
-    // Cuando termina la animación de salida, cambiamos de pista
     if (s.mode === 'swipe-out' && Math.abs(s.swipeOffset - s.swipeTarget) < 0.15) {
       const dir = s.pendingSwipe;
       s.pendingSwipe = null;
@@ -105,7 +136,6 @@ export function ScratchableVinyl({
     const pointer = new THREE.Vector2();
     const planeHit = new THREE.Vector3();
 
-    // Solo para detectar si el click inicial cae dentro del disco
     const getDiscHit = (clientX: number, clientY: number) => {
       if (!discRef.current) return null;
       const r = canvas.getBoundingClientRect();
@@ -116,8 +146,6 @@ export function ScratchableVinyl({
       return hits.length > 0;
     };
 
-    // Ángulo sobre un PLANO INFINITO horizontal a la altura del disco.
-    // Funciona aunque el ratón esté fuera del disco.
     const getAngleAt = (clientX: number, clientY: number): number | null => {
       if (!groupRef.current) return null;
       const r = canvas.getBoundingClientRect();
@@ -146,11 +174,38 @@ export function ScratchableVinyl({
 
     const onDown = (e: PointerEvent) => {
       const s = state.current;
+      const ctrl = controls as any;
+
+      // ── Doble clic del botón central → reset de cámara
+      if (e.button === 1) {
+        const now = performance.now();
+        const last = s.lastMiddleClick;
+        if (
+          last &&
+          now - last.time < MIDDLE_DOUBLE_CLICK_MS &&
+          Math.abs(e.clientX - last.x) < MIDDLE_DOUBLE_CLICK_MAX_DIST &&
+          Math.abs(e.clientY - last.y) < MIDDLE_DOUBLE_CLICK_MAX_DIST
+        ) {
+          s.lastMiddleClick = null;
+          if (ctrl) {
+            reset.current.active = true;
+            reset.current.startTime = now;
+            reset.current.fromPos.copy(camera.position);
+            reset.current.fromTarget.copy(ctrl.target);
+            ctrl.enabled = false;
+          }
+        } else {
+          s.lastMiddleClick = { time: now, x: e.clientX, y: e.clientY };
+        }
+        // No bloqueamos el evento: OrbitControls también lo recibe
+        return;
+      }
+
       if (s.mode !== 'idle') return;
 
       if (e.button === 0) {
         if (!isPlaying) return;
-        if (!getDiscHit(e.clientX, e.clientY)) return; // solo arranca sobre el disco
+        if (!getDiscHit(e.clientX, e.clientY)) return;
         const angle = getAngleAt(e.clientX, e.clientY);
         if (angle === null) return;
 
@@ -179,7 +234,7 @@ export function ScratchableVinyl({
 
       if (s.mode === 'scratch') {
         const angle = getAngleAt(e.clientX, e.clientY);
-        if (angle === null) return; // sólo si el rayo es paralelo al plano
+        if (angle === null) return;
 
         let dAngle = angle - s.lastAngle;
         if (dAngle > Math.PI) dAngle -= 2 * Math.PI;
@@ -196,7 +251,6 @@ export function ScratchableVinyl({
           -4,
           4
         );
-        s.lastReportedRate = rate;
         onScratchRate(rate);
 
         s.lastAngle = angle;
@@ -247,7 +301,7 @@ export function ScratchableVinyl({
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
     };
-  }, [camera, gl, isPlaying, onScratchStart, onScratchRate, onScratchEnd, onSwipe]);
+  }, [camera, gl, controls, isPlaying, onScratchStart, onScratchRate, onScratchEnd, onSwipe]);
 
   return (
     <group ref={groupRef}>

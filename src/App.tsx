@@ -7,6 +7,8 @@ import { useAudioEngine } from './hooks/useAudioEngine';
 import { getCoverArt } from './utils/coverArt';
 import './App.css';
 
+const RPM_BASE = 33.333;
+
 function formatTime(seconds: number) {
   if (!isFinite(seconds) || seconds < 0) return '0:00';
   const m = Math.floor(seconds / 60);
@@ -22,15 +24,27 @@ function App() {
     playTrack,
     seekTrack,
     setTrackRate,
+    setTrackBaseRateSmooth,
+    setTrackEQ,
     setTrackVolume,
     setTrackCover,
+    beginScratch,
+    endScratch,
   } = useAudioEngine();
+
+  const [editingRpm, setEditingRpm] = useState(false);
+  const [rpmDraft, setRpmDraft] = useState('');
 
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<any>(null);
 
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId) ?? null;
+
+  const rpm = (selectedTrack?.baseRate ?? 1) * RPM_BASE;
+  const eqLow = selectedTrack?.eq.low ?? 0;
+  const eqMid = selectedTrack?.eq.mid ?? 0;
+  const eqHigh = selectedTrack?.eq.high ?? 0;
 
   const handleOpenFile = () => fileInputRef.current?.click();
 
@@ -62,6 +76,39 @@ function App() {
     setTrackVolume(selectedTrack.id, Number(e.target.value));
   };
 
+  const handleRpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedTrackId) return;
+    const newRpm = Number(e.target.value);
+    setTrackBaseRateSmooth(selectedTrackId, newRpm / RPM_BASE, 400);
+  };
+
+  const startEditRpm = () => {
+    if (!selectedTrack) return;
+    setRpmDraft(rpm.toFixed(2));
+    setEditingRpm(true);
+  };
+
+  const commitEditRpm = () => {
+    setEditingRpm(false);
+    if (!selectedTrackId) return;
+    const parsed = parseFloat(rpmDraft.replace(',', '.'));
+    if (isNaN(parsed)) return;
+    const clamped = Math.max(8, Math.min(100, parsed));
+    setTrackBaseRateSmooth(selectedTrackId, clamped / RPM_BASE, 700);
+  };
+
+  const resetRpm = () => {
+    if (!selectedTrackId) return;
+    setTrackBaseRateSmooth(selectedTrackId, 1, 500);
+  };
+
+  const handleEqChange =
+    (band: 'low' | 'mid' | 'high') =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!selectedTrackId) return;
+      setTrackEQ(selectedTrackId, band, Number(e.target.value));
+    };
+
   const handleSwipe = useCallback(
     (direction: 'left' | 'right') => {
       if (!selectedTrackId) return;
@@ -69,8 +116,8 @@ function App() {
       if (idx < 0) return;
       const newIdx =
         direction === 'right'
-          ? Math.max(0, idx - 1)      // drag derecha → anterior
-          : Math.min(tracks.length - 1, idx + 1); // drag izq → siguiente
+          ? Math.max(0, idx - 1)
+          : Math.min(tracks.length - 1, idx + 1);
       if (newIdx !== idx) setSelectedTrackId(tracks[newIdx].id);
     },
     [tracks, selectedTrackId]
@@ -79,9 +126,12 @@ function App() {
   // -------- Scratch --------
   const onScratchStart = useCallback(() => {
     if (controlsRef.current) controlsRef.current.enabled = false;
-    // No usar 0 exacto: Chromium se queda mudo al pasar a negativo
-    if (selectedTrackId) setTrackRate(selectedTrackId, 0.001);
-  }, [selectedTrackId, setTrackRate]);
+    if (selectedTrackId) {
+      beginScratch(selectedTrackId);
+      setTrackRate(selectedTrackId, 0.001);
+    }
+  }, [selectedTrackId, setTrackRate, beginScratch]);
+
 
   const onScratchRate = useCallback(
     (rate: number) => {
@@ -93,128 +143,245 @@ function App() {
   const onScratchEnd = useCallback(() => {
     if (controlsRef.current) controlsRef.current.enabled = true;
     if (!selectedTrackId) return;
-    // Ramp suave de vuelta a 1x en 80 ms
+    endScratch(selectedTrackId);
+    const target = selectedTrack?.baseRate ?? 1;
     const id = selectedTrackId;
     const start = performance.now();
-    const from = 1; // queremos llegar a 1
     const dur = 80;
     const tick = () => {
       const t = Math.min((performance.now() - start) / dur, 1);
-      // Ramp lineal de 0.001 → 1 (o del valor actual si prefieres)
-      const rate = 0.001 + (from - 0.001) * t;
+      const rate = 0.001 + (target - 0.001) * t;
       setTrackRate(id, rate);
       if (t < 1) requestAnimationFrame(tick);
     };
     tick();
-  }, [selectedTrackId, setTrackRate]);
+  }, [selectedTrackId, selectedTrack, setTrackRate, endScratch]);
 
-  return (
-    <div id="app">
-      <aside id="sidebar">
-        <button id="open-folder" onClick={handleOpenFile}>📁 Abrir archivo</button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="audio/*"
-          style={{ display: 'none' }}
-          onChange={handleFileChange}
-        />
-        <ul id="track-list">
-          {tracks.length === 0 && (
-            <li className="empty">Sin canciones cargadas</li>
-          )}
-          {tracks.map((track) => (
-            <li
-              key={track.id}
-              className={track.id === selectedTrackId ? 'active' : ''}
-              onClick={() => setSelectedTrackId(track.id)}
-              title={track.name}
-            >
-              <span className="track-name">{track.name}</span>
-              {track.isPlaying && <span className="track-status">▶</span>}
-            </li>
-          ))}
-        </ul>
-      </aside>
-
-      <main id="main">
-        <section id="viewport">
-          <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[5, 10, 6]} intensity={1.5} />
-            <directionalLight
-              position={[-6, 5, -7]}
-              intensity={0.6}
-              color="#6688ff"
-            />
-
-            <ScratchableVinyl
-              isPlaying={selectedTrack?.isPlaying ?? false}
-              coverUrl={selectedTrack?.coverUrl ?? null}
-              onScratchStart={onScratchStart}
-              onScratchRate={onScratchRate}
-              onScratchEnd={onScratchEnd}
-              onSwipe={handleSwipe}
-            />
-
-            <OrbitControls
-              ref={controlsRef}
-              enableDamping
-              dampingFactor={0.08}
-              enablePan={false}
-              minPolarAngle={0.15}
-              maxPolarAngle={Math.PI / 2.05}
-              minDistance={5}
-              maxDistance={30}
-              mouseButtons={{
-                LEFT: null,                   // reservado para scratch
-                MIDDLE: THREE.MOUSE.ROTATE,   // cámara con la rueda
-                RIGHT: null,                  // reservado para swipe
-              }}
-            />
-          </Canvas>
-        </section>
-
-        <footer id="controls">
-          <button
-            id="play-pause"
-            disabled={!selectedTrack}
-            onClick={() => selectedTrack && toggleTrack(selectedTrack.id)}
-          >
-            {selectedTrack?.isPlaying ? '⏸' : '▶'}
+    return (
+    <>
+      <div id="app">
+        <aside id="sidebar">
+          <button id="open-folder" onClick={handleOpenFile}>
+            📁 Abrir archivo
           </button>
-          <span id="time-current">
-            {formatTime(selectedTrack?.currentTime ?? 0)}
-          </span>
           <input
-            type="range"
-            id="progress"
-            min="0"
-            max="1000"
-            disabled={!selectedTrack}
-            value={
-              selectedTrack?.duration
-                ? (selectedTrack.currentTime / selectedTrack.duration) * 1000
-                : 0
-            }
-            onChange={handleProgressChange}
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
           />
-          <span id="time-total">
-            {formatTime(selectedTrack?.duration ?? 0)}
-          </span>
-          <input
-            type="range"
-            id="volume"
-            min="0"
-            max="1"
-            step="0.01"
-            disabled={!selectedTrack}
-            value={selectedTrack?.volume ?? 0.8}
-            onChange={handleVolumeChange}
-          />
-        </footer>
-      </main>
-    </div>
+          <ul id="track-list">
+            {tracks.length === 0 && (
+              <li className="empty">Sin canciones cargadas</li>
+            )}
+            {tracks.map((track) => (
+              <li
+                key={track.id}
+                className={track.id === selectedTrackId ? 'active' : ''}
+                onClick={() => setSelectedTrackId(track.id)}
+                title={track.name}
+              >
+                <span className="track-name">{track.name}</span>
+                {track.isPlaying && <span className="track-status">▶</span>}
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+        <main id="main">
+          <section id="viewport">
+            <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
+              <ambientLight intensity={0.5} />
+              <directionalLight position={[5, 10, 6]} intensity={1.5} />
+              <directionalLight
+                position={[-6, 5, -7]}
+                intensity={0.6}
+                color="#6688ff"
+              />
+
+              <ScratchableVinyl
+                isPlaying={selectedTrack?.isPlaying ?? false}
+                coverUrl={selectedTrack?.coverUrl ?? null}
+                baseRate={selectedTrack?.baseRate ?? 1}
+                onScratchStart={onScratchStart}
+                onScratchRate={onScratchRate}
+                onScratchEnd={onScratchEnd}
+                onSwipe={handleSwipe}
+              />
+
+              <OrbitControls
+                ref={controlsRef}
+                makeDefault
+                enableDamping
+                dampingFactor={0.08}
+                enablePan={false}
+                minPolarAngle={0.15}
+                maxPolarAngle={Math.PI / 2.05}
+                minDistance={5}
+                maxDistance={30}
+                mouseButtons={{
+                  LEFT: null,
+                  MIDDLE: THREE.MOUSE.ROTATE,
+                  RIGHT: null,
+                }}
+              />
+            </Canvas>
+          </section>
+
+          <footer id="controls">
+            <button
+              id="play-pause"
+              disabled={!selectedTrack}
+              onClick={() => selectedTrack && toggleTrack(selectedTrack.id)}
+            >
+              {selectedTrack?.isPlaying ? '⏸' : '▶'}
+            </button>
+            <span id="time-current">
+              {formatTime(selectedTrack?.currentTime ?? 0)}
+            </span>
+            <input
+              type="range"
+              id="progress"
+              min="0"
+              max="1000"
+              disabled={!selectedTrack}
+              value={
+                selectedTrack?.duration
+                  ? (selectedTrack.currentTime / selectedTrack.duration) * 1000
+                  : 0
+              }
+              onChange={handleProgressChange}
+            />
+            <span id="time-total">
+              {formatTime(selectedTrack?.duration ?? 0)}
+            </span>
+            <input
+              type="range"
+              id="volume"
+              min="0"
+              max="1"
+              step="0.01"
+              disabled={!selectedTrack}
+              value={selectedTrack?.volume ?? 0.8}
+              onChange={handleVolumeChange}
+            />
+          </footer>
+        </main>
+      </div>
+
+      {/* ── Rail derecho desplegable ── */}
+      <div id="right-rail">
+        <aside id="right-sidebar">
+          <div className="section">
+            <div className="section-title">Velocidad</div>
+
+            {editingRpm ? (
+              <input
+                type="text"
+                className="rpm-input"
+                value={rpmDraft}
+                onChange={(e) => setRpmDraft(e.target.value)}
+                onBlur={commitEditRpm}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitEditRpm();
+                  if (e.key === 'Escape') setEditingRpm(false);
+                }}
+                autoFocus
+                disabled={!selectedTrack}
+              />
+            ) : (
+              <div
+                className="rpm-value"
+                onClick={startEditRpm}
+                title="Click para escribir un valor exacto"
+              >
+                {rpm.toFixed(2)}
+              </div>
+            )}
+
+            <div
+              className="rpm-unit"
+              onClick={resetRpm}
+              title="Click para volver a 33.33 RPM"
+            >
+              RPM
+            </div>
+
+            <input
+              type="range"
+              min="8"
+              max="100"
+              step="0.1"
+              value={rpm}
+              disabled={!selectedTrack}
+              onChange={handleRpmChange}
+            />
+          </div>
+
+          <div className="section">
+            <div className="section-title">Ecualizador</div>
+
+            <div className="slider-row">
+              <div className="slider-label">
+                <span>Bajos</span>
+                <span className="value">
+                  {eqLow > 0 ? '+' : ''}
+                  {eqLow.toFixed(1)} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-12"
+                max="12"
+                step="0.5"
+                value={eqLow}
+                disabled={!selectedTrack}
+                onChange={handleEqChange('low')}
+              />
+            </div>
+
+            <div className="slider-row">
+              <div className="slider-label">
+                <span>Medios</span>
+                <span className="value">
+                  {eqMid > 0 ? '+' : ''}
+                  {eqMid.toFixed(1)} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-12"
+                max="12"
+                step="0.5"
+                value={eqMid}
+                disabled={!selectedTrack}
+                onChange={handleEqChange('mid')}
+              />
+            </div>
+
+            <div className="slider-row">
+              <div className="slider-label">
+                <span>Agudos</span>
+                <span className="value">
+                  {eqHigh > 0 ? '+' : ''}
+                  {eqHigh.toFixed(1)} dB
+                </span>
+              </div>
+              <input
+                type="range"
+                min="-12"
+                max="12"
+                step="0.5"
+                value={eqHigh}
+                disabled={!selectedTrack}
+                onChange={handleEqChange('high')}
+              />
+            </div>
+          </div>
+        </aside>
+      </div>
+    </>
   );
 }
 
