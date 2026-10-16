@@ -1,5 +1,11 @@
 import * as THREE from "three";
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from "react";
+
+import {
+  loadLibrary,
+  saveLibrary,
+  type LibraryEntry,
+} from "./utils/libraryStorage";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
@@ -16,20 +22,33 @@ import { useAnimatedTheme } from "./hooks/useAnimatedTheme";
 
 import { Reorder } from "framer-motion";
 
+import {
+  loadPlaylists,
+  savePlaylists,
+  createPlaylist,
+  type Playlist,
+} from "./utils/playlistStorage";
+import { PlaylistGrid, PlaylistDetail } from "./components/PlaylistManager";
+
+import {
+  PlaylistModal,
+  type CandidateGroup,
+} from "./components/PlaylistModal";
+
 import "./App.css";
 
 const RPM_BASE = 33.333;
 
-const PLAY_MODE_LABEL: Record<'single' | 'continuous' | 'loop', string> = {
-  single: 'Solo (se detiene al terminar)',
-  continuous: 'Seguido (pasa a la siguiente pista)',
-  loop: 'Bucle (se repite indefinidamente)',
+const PLAY_MODE_LABEL: Record<"single" | "continuous" | "loop", string> = {
+  single: "Solo (se detiene al terminar)",
+  continuous: "Seguido (pasa a la siguiente pista)",
+  loop: "Bucle (se repite indefinidamente)",
 };
 
-const PLAY_MODE_ICON: Record<'single' | 'continuous' | 'loop', string> = {
-  single: '⏹',
-  continuous: '⏭',
-  loop: '🔁',
+const PLAY_MODE_ICON: Record<"single" | "continuous" | "loop", string> = {
+  single: "⏹",
+  continuous: "⏭",
+  loop: "🔁",
 };
 
 function formatTime(seconds: number) {
@@ -92,8 +111,17 @@ function App() {
   const [editingRpm, setEditingRpm] = useState(false);
   const [rpmDraft, setRpmDraft] = useState("");
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<any>(null);
+
+  const [appMode, setAppMode] = useState<"player" | "playlists">("player");
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
+    null,
+  );
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => loadPlaylists());
+  const [playlistModalOpen, setPlaylistModalOpen] = useState(false);
+
+  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
+  const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
 
   // ── 2. Refs para el callback del engine (deben ir ANTES del engine) ──
   const stateRef = useRef<any>(null);
@@ -103,7 +131,8 @@ function App() {
   // ── 3. ÚNICA llamada al engine, con el callback ──
   const {
     tracks,
-    addTrack,
+    addTrackFromArrayBuffer, // ← nuevo
+    clearAll, // ← nuevo
     toggleTrack,
     playTrack,
     pauseTrack,
@@ -241,6 +270,18 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalTheme.satBoost, globalTheme.brightness]);
 
+  const playlistsSignature = useMemo(
+    () =>
+      JSON.stringify(
+        playlists.map((p) => `${p.id}|${p.name}|${p.trackPaths.length}`),
+      ),
+    [playlists],
+  );
+
+  useEffect(() => {
+    savePlaylists(playlists);
+  }, [playlistsSignature]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat) return;
@@ -272,31 +313,161 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracks]);
 
-  const handleOpenFile = () => fileInputRef.current?.click();
+  const restoredRef = useRef(false);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (!window.mozzie) return;
+    restoredRef.current = true;
 
-    const id = await addTrack(file, null);
-    setSelectedTrackId(id);
-    playExclusive(id);
+    (async () => {
+      const entries = loadLibrary();
+      if (entries.length === 0) return;
 
-    try {
-      const { coverUrl } = await getCoverArt(file);
-      if (coverUrl) {
-        setTrackCover(id, coverUrl);
-        const palette = await extractPaletteFromImage(
-          coverUrl,
-          globalTheme.satBoost,
-          globalTheme.brightness, // ← nuevo
-        );
-        setTrackExtractedColors(id, palette);
+      const existing = await Promise.all(
+        entries.map(async (e) =>
+          (await window.mozzie!.exists(e.path)) ? e : null,
+        ),
+      );
+      const valid = existing.filter((e): e is LibraryEntry => e !== null);
+
+      if (valid.length === 0) {
+        saveLibrary([]);
+        return;
       }
-    } catch (err) {
-      console.warn("Carátula no disponible:", err);
-    }
+
+      // Cargar sin reproducir
+      for (const entry of valid) {
+        const res = await window.mozzie!.readFile(entry.path);
+        if (!res.ok) continue;
+        const name =
+          entry.name || entry.path.split(/[\\/]/).pop() || entry.path;
+        const id = await addTrackFromArrayBuffer(
+          name,
+          entry.path,
+          res.data,
+          null,
+          entry.path,
+        );
+        try {
+          const file = new File([res.data], name, { type: "audio/mpeg" });
+          const { coverUrl } = await getCoverArt(file);
+          if (coverUrl) {
+            setTrackCover(id, coverUrl);
+            const palette = await extractPaletteFromImage(
+              coverUrl,
+              globalTheme.satBoost,
+              globalTheme.brightness,
+            );
+            setTrackExtractedColors(id, palette);
+          }
+        } catch {
+          /* sin carátula */
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const librarySignature = useMemo(
+    () => tracks.map((t) => `${t.sourcePath ?? ""}|${t.name}`).join("\n"),
+    [tracks],
+  );
+
+  useEffect(() => {
+    const entries: LibraryEntry[] = tracks
+      .filter((t) => t.sourcePath)
+      .map((t) => ({ path: t.sourcePath!, name: t.name }));
+    saveLibrary(entries);
+  }, [librarySignature]);
+
+  // ─── AQUÍ VA playExclusive ───
+  const playExclusive = useCallback(
+    (id: string) => {
+      if (globalTheme.singlePlayback) {
+        tracks.forEach((t) => {
+          if (t.id !== id && t.isPlaying) pauseTrack(t.id);
+        });
+      }
+      playTrack(id);
+    },
+    [globalTheme.singlePlayback, tracks, pauseTrack, playTrack],
+  );
+
+  /** Carga una lista de paths: lee, decodifica y añade (sin auto-play). */
+  const loadPathsIntoLibrary = useCallback(
+    async (paths: string[], autoPlayFirst: boolean): Promise<string[]> => {
+      if (!window.mozzie || paths.length === 0) return [];
+
+      const addedIds: string[] = [];
+
+      for (const p of paths) {
+        try {
+          const res = await window.mozzie.readFile(p);
+          if (!res.ok) {
+            console.warn("No se pudo leer:", p);
+            continue;
+          }
+          const name = p.split(/[\\/]/).pop() ?? p;
+          const stableKey = p;
+
+          const id = await addTrackFromArrayBuffer(name, stableKey, res.data, null, p);
+          addedIds.push(id);   // ← acumula ids
+
+          // Carátula en background
+          try {
+            const file = new File([res.data], name, { type: "audio/mpeg" });
+            const { coverUrl } = await getCoverArt(file);
+            if (coverUrl) {
+              setTrackCover(id, coverUrl);
+              const palette = await extractPaletteFromImage(
+                coverUrl,
+                globalTheme.satBoost,
+                globalTheme.brightness,
+              );
+              setTrackExtractedColors(id, palette);
+            }
+          } catch {
+            /* sin carátula */
+          }
+        } catch (err) {
+          console.warn("Error cargando pista:", p, err);
+        }
+      }
+
+      if (autoPlayFirst && addedIds[0]) {
+        setSelectedTrackId(addedIds[0]);
+        playExclusive(addedIds[0]);
+      }
+
+      return addedIds;
+    },
+    [
+      addTrackFromArrayBuffer,
+      setTrackCover,
+      setTrackExtractedColors,
+      playExclusive,
+      globalTheme.satBoost,
+      globalTheme.brightness,
+    ],
+  );
+
+  const handleOpenFiles = useCallback(async () => {
+    if (!window.mozzie) return;
+    const paths = await window.mozzie.openFiles();
+    await loadPathsIntoLibrary(paths, false);
+  }, [loadPathsIntoLibrary]);
+
+  const handleOpenFolder = useCallback(async () => {
+    if (!window.mozzie) return;
+    const paths = await window.mozzie.openFolder();
+    await loadPathsIntoLibrary(paths, false);
+  }, [loadPathsIntoLibrary]);
+
+  const handleClearAll = () => {
+    clearAll();
+    saveLibrary([]);
+    setSelectedTrackId(null);
   };
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -310,14 +481,16 @@ function App() {
     setTrackVolume(selectedTrack.id, Number(e.target.value));
   };
 
-const handlePlayModeCycle = useCallback(() => {
-  const modes: ('single' | 'continuous' | 'loop')[] = [
-    'single', 'continuous', 'loop',
-  ];
-  const idx = modes.indexOf(globalTheme.playMode);
-  const next = modes[(idx + 1) % modes.length];
-  setGlobalTheme({ playMode: next });
-}, [globalTheme.playMode, setGlobalTheme]);
+  const handlePlayModeCycle = useCallback(() => {
+    const modes: ("single" | "continuous" | "loop")[] = [
+      "single",
+      "continuous",
+      "loop",
+    ];
+    const idx = modes.indexOf(globalTheme.playMode);
+    const next = modes[(idx + 1) % modes.length];
+    setGlobalTheme({ playMode: next });
+  }, [globalTheme.playMode, setGlobalTheme]);
 
   const handleRpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedTrackId) return;
@@ -406,17 +579,99 @@ const handlePlayModeCycle = useCallback(() => {
     ],
   );
 
-  const playExclusive = useCallback(
-    (id: string) => {
-      if (globalTheme.singlePlayback) {
-        tracks.forEach((t) => {
-          if (t.id !== id && t.isPlaying) pauseTrack(t.id);
-        });
+  const candidateGroups = useMemo<CandidateGroup[]>(() => {
+    const groups: CandidateGroup[] = [];
+
+    const inboxTracks = tracks
+      .filter((t) => t.sourcePath)
+      .map((t) => ({ path: t.sourcePath!, name: t.name }));
+    if (inboxTracks.length > 0) {
+      groups.push({ label: "📥 Bandeja de entrada", tracks: inboxTracks });
+    }
+
+    for (const pl of playlists) {
+      groups.push({
+        label: `🎵 ${pl.name}`,
+        tracks: pl.trackPaths.map((p) => ({
+          path: p,
+          name: p.split(/[\\/]/).pop() ?? p,
+        })),
+      });
+    }
+
+    return groups;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    tracks.map((t) => t.sourcePath).join("|"),
+    playlists.map((p) => `${p.id}|${p.trackPaths.length}`).join("|"),
+  ]);
+
+const handleSaveAsPlaylist = () => {
+  const hasInbox = tracks.some((t) => t.sourcePath);
+  const hasPlaylists = playlists.some((p) => p.trackPaths.length > 0);
+  if (!hasInbox && !hasPlaylists) {
+    alert("No hay canciones para incluir en una playlist.");
+    return;
+  }
+  setPlaylistModalOpen(true);
+};
+
+  const initialSelectedPaths = useMemo(() => {
+    if (activePlaylistId !== null) return [];
+    return tracks.filter((t) => t.sourcePath).map((t) => t.sourcePath!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activePlaylistId,
+    tracks.map((t) => t.sourcePath).join("|"),
+  ]);
+
+  const handlePlayFromPlaylist = async (
+    playlist: Playlist,
+    trackIndex: number,
+  ) => {
+    if (isLoadingPlaylist) return;
+    setIsLoadingPlaylist(true);
+    try {
+      // 1. Limpiar todo lo que había en el sidebar
+      clearAll();
+      setSelectedTrackId(null);
+
+      // 2. Cargar solo las pistas de esta playlist
+      const ids = await loadPathsIntoLibrary(playlist.trackPaths, false);
+      setActivePlaylistId(playlist.id);
+
+      // 3. Seleccionar y reproducir la pista pulsada
+      if (ids[trackIndex]) {
+        setSelectedTrackId(ids[trackIndex]);
+        playExclusive(ids[trackIndex]);
       }
-      playTrack(id);
-    },
-    [globalTheme.singlePlayback, tracks, pauseTrack, playTrack],
-  );
+
+      // 4. Volver al modo player
+      setAppMode("player");
+    } finally {
+      setIsLoadingPlaylist(false);
+    }
+  };
+
+  const handleBackToInbox = useCallback(async () => {
+    if (isLoadingPlaylist) return;
+    setIsLoadingPlaylist(true);
+    try {
+      clearAll();
+      setSelectedTrackId(null);
+      setActivePlaylistId(null);
+
+      const inbox = loadLibrary();
+      if (inbox.length > 0) {
+        await loadPathsIntoLibrary(
+          inbox.map((e) => e.path),
+          false,
+        );
+      }
+    } finally {
+      setIsLoadingPlaylist(false);
+    }
+  }, [isLoadingPlaylist, clearAll, loadPathsIntoLibrary]);
 
   // -------- Scratch --------
   const onScratchStart = useCallback(() => {
@@ -474,6 +729,7 @@ const handlePlayModeCycle = useCallback(() => {
 
   const handleToggleTrack = useCallback(
     (id: string) => {
+      setSelectedTrackId(id);   // ← añadir
       toggleTrack(id);
     },
     [toggleTrack],
@@ -482,380 +738,542 @@ const handlePlayModeCycle = useCallback(() => {
   return (
     <>
       <div className="titlebar-drag" />
-      <div id="app">
+      <div id="app" className={appMode === "playlists" ? "playlist-mode" : ""}>
         <aside id="sidebar">
-          <button id="open-folder" onClick={handleOpenFile}>
-            📁 Abrir archivo
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="audio/*"
-            style={{ display: "none" }}
-            onChange={handleFileChange}
-          />
-          <Reorder.Group
-            axis="y"
-            id="track-list"
-            values={tracks.map((t) => t.id)}
-            onReorder={(newIds) => reorderTracks(newIds as string[])}
-          >
-            {tracks.length === 0 && (
-              <li className="empty">Sin canciones cargadas</li>
+          <div className="sidebar-view-header">
+            {activePlaylistId ? (
+              <>
+                <span className="view-name">
+                  🎵{" "}
+                  {playlists.find((p) => p.id === activePlaylistId)?.name ??
+                    "Playlist"}
+                </span>
+                <button
+                  className="view-inbox-btn"
+                  onClick={handleBackToInbox}
+                  disabled={isLoadingPlaylist}
+                  title="Volver a la bandeja de entrada"
+                >
+                  📥 Inbox
+                </button>
+              </>
+            ) : (
+              <span className="view-name">📥 Bandeja de entrada</span>
             )}
-            {tracks.map((track) => (
-              <TrackItem
-                key={track.id}
-                id={track.id}
-                name={track.name}
-                isPlaying={track.isPlaying}
-                isSelected={track.id === selectedTrackId}
-                onSelect={handleSelectTrack}
-                onToggle={handleToggleTrack}
-              />
-            ))}
-          </Reorder.Group>
-          <button
-            className="customize-btn"
-            onClick={() => setCustomizeOpen(true)}
-          >
-            ⚙️ Personalización
-          </button>
+          </div>
+          {appMode === "player" ? (
+            <>
+              <div className="sidebar-actions">
+                <button id="open-folder" onClick={handleOpenFiles}>
+                  📁 Abrir archivos
+                </button>
+                <button id="open-directory" onClick={handleOpenFolder}>
+                  📂 Abrir carpeta
+                </button>
+              </div>
+
+              <Reorder.Group
+                axis="y"
+                id="track-list"
+                values={tracks.map((t) => t.id)}
+                onReorder={(newIds) => reorderTracks(newIds as string[])}
+              >
+                {tracks.length === 0 && (
+                  <li className="empty">Sin canciones cargadas</li>
+                )}
+                {tracks.map((track) => (
+                  <TrackItem
+                    key={track.id}
+                    id={track.id}
+                    name={track.name}
+                    isPlaying={track.isPlaying}
+                    isSelected={track.id === selectedTrackId}
+                    onSelect={handleSelectTrack}
+                    onToggle={handleToggleTrack}
+                  />
+                ))}
+              </Reorder.Group>
+
+              <div className="sidebar-footer-actions">
+                <button
+                  className="customize-btn"
+                  onClick={() => setAppMode("playlists")}
+                >
+                  🎵 Playlists
+                </button>
+                <button
+                  className="customize-btn"
+                  onClick={() => setCustomizeOpen(true)}
+                >
+                  ⚙️ Personalización
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Modo playlists: 3D arriba + info de canción abajo */}
+              <div className="sidebar-mini-3d">
+                <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
+                  <ResponsiveCamera baseFov={45} baseAspect={1.5} />
+                  <color attach="background" args={[animatedTheme.bg1]} />
+                  <ambientLight intensity={0.55} />
+                  <directionalLight position={[5, 10, 6]} intensity={1.4} />
+                  <directionalLight
+                    position={[-6, 5, -7]}
+                    intensity={0.7}
+                    color={animatedTheme.primary}
+                  />
+                  <ScratchableVinyl
+                    isPlaying={selectedTrack?.isPlaying ?? false}
+                    coverUrl={selectedTrack?.coverUrl ?? null}
+                    baseRate={selectedTrack?.baseRate ?? 1}
+                    direction={selectedTrack?.direction ?? 1}
+                    onScratchStart={onScratchStart}
+                    onScratchRate={onScratchRate}
+                    onScratchEnd={onScratchEnd}
+                    onSwipe={handleSwipe}
+                  />
+                  <OrbitControls
+                    ref={controlsRef}
+                    makeDefault
+                    enableDamping
+                    dampingFactor={0.08}
+                    enablePan={false}
+                    minPolarAngle={0.15}
+                    maxPolarAngle={Math.PI / 2.05}
+                    minDistance={5}
+                    maxDistance={30}
+                    mouseButtons={{
+                      LEFT: null,
+                      MIDDLE: THREE.MOUSE.ROTATE,
+                      RIGHT: null,
+                    }}
+                  />
+                </Canvas>
+              </div>
+
+              <div className="sidebar-mini-info">
+                <div className="section-title">En reproducción</div>
+                {selectedTrack ? (
+                  <>
+                    <div className="mini-info-name">{selectedTrack.name}</div>
+                    <div className="mini-info-time">
+                      {formatTime(selectedTrack.currentTime)} /{" "}
+                      {formatTime(selectedTrack.duration)}
+                    </div>
+                  </>
+                ) : (
+                  <div className="mini-info-empty">
+                    Ninguna pista seleccionada
+                  </div>
+                )}
+              </div>
+
+              <div className="sidebar-footer-actions">
+                <button
+                  className="customize-btn"
+                  onClick={() => setAppMode("player")}
+                >
+                  ◀ Volver al reproductor
+                </button>
+              </div>
+            </>
+          )}
         </aside>
 
         <main id="main">
-          <section id="viewport">
-            <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
-              <ResponsiveCamera baseFov={45} baseAspect={1.5} />
-              <color attach="background" args={[animatedTheme.bg1]} />
-              <ambientLight intensity={0.55} />
-              <directionalLight position={[5, 10, 6]} intensity={1.4} />
-              <directionalLight
-                position={[-6, 5, -7]}
-                intensity={0.7}
-                color={animatedTheme.primary}
-              />
+          {appMode === "player" ? (
+            <>
+              <section id="viewport">
+                <Canvas camera={{ position: [0, 14, 18], fov: 45 }}>
+                  <ResponsiveCamera baseFov={45} baseAspect={1.5} />
+                  <color attach="background" args={[animatedTheme.bg1]} />
+                  <ambientLight intensity={0.55} />
+                  <directionalLight position={[5, 10, 6]} intensity={1.4} />
+                  <directionalLight
+                    position={[-6, 5, -7]}
+                    intensity={0.7}
+                    color={animatedTheme.primary}
+                  />
 
-              <ScratchableVinyl
-                isPlaying={selectedTrack?.isPlaying ?? false}
-                coverUrl={selectedTrack?.coverUrl ?? null}
-                baseRate={selectedTrack?.baseRate ?? 1}
-                onScratchStart={onScratchStart}
-                onScratchRate={onScratchRate}
-                onScratchEnd={onScratchEnd}
-                onSwipe={handleSwipe}
-              />
+                  <ScratchableVinyl
+                    isPlaying={selectedTrack?.isPlaying ?? false}
+                    coverUrl={selectedTrack?.coverUrl ?? null}
+                    baseRate={selectedTrack?.baseRate ?? 1}
+                    direction={selectedTrack?.direction ?? 1} // ← NUEVO
+                    onScratchStart={onScratchStart}
+                    onScratchRate={onScratchRate}
+                    onScratchEnd={onScratchEnd}
+                    onSwipe={handleSwipe}
+                  />
 
-              <OrbitControls
-                ref={controlsRef}
-                makeDefault
-                enableDamping
-                dampingFactor={0.08}
-                enablePan={false}
-                minPolarAngle={0.15}
-                maxPolarAngle={Math.PI / 2.05}
-                minDistance={5}
-                maxDistance={30}
-                mouseButtons={{
-                  LEFT: null,
-                  MIDDLE: THREE.MOUSE.ROTATE,
-                  RIGHT: null,
+                  <OrbitControls
+                    ref={controlsRef}
+                    makeDefault
+                    enableDamping
+                    dampingFactor={0.08}
+                    enablePan={false}
+                    minPolarAngle={0.15}
+                    maxPolarAngle={Math.PI / 2.05}
+                    minDistance={5}
+                    maxDistance={30}
+                    mouseButtons={{
+                      LEFT: null,
+                      MIDDLE: THREE.MOUSE.ROTATE,
+                      RIGHT: null,
+                    }}
+                  />
+                </Canvas>
+              </section>
+
+              <footer id="controls">
+                <button
+                  id="play-pause"
+                  disabled={!selectedTrack}
+                  onClick={() => selectedTrack && toggleTrack(selectedTrack.id)}
+                >
+                  {selectedTrack?.isPlaying ? "⏸" : "▶"}
+                </button>
+
+                {/* ── NUEVO: botón cíclico de modo de reproducción ── */}
+                <button
+                  id="playmode-btn"
+                  className={globalTheme.playMode !== "single" ? "active" : ""}
+                  onClick={handlePlayModeCycle}
+                  title={PLAY_MODE_LABEL[globalTheme.playMode]}
+                  aria-label={PLAY_MODE_LABEL[globalTheme.playMode]}
+                >
+                  {PLAY_MODE_ICON[globalTheme.playMode]}
+                </button>
+
+                <span id="time-current">
+                  {formatTime(selectedTrack?.currentTime ?? 0)}
+                </span>
+                <input
+                  type="range"
+                  id="progress"
+                  min="0"
+                  max="1000"
+                  disabled={!selectedTrack}
+                  value={
+                    selectedTrack?.duration
+                      ? (selectedTrack.currentTime / selectedTrack.duration) *
+                        1000
+                      : 0
+                  }
+                  onChange={handleProgressChange}
+                />
+                <span id="time-total">
+                  {formatTime(selectedTrack?.duration ?? 0)}
+                </span>
+                <input
+                  type="range"
+                  id="volume"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  disabled={!selectedTrack}
+                  value={selectedTrack?.volume ?? 0.8}
+                  onChange={handleVolumeChange}
+                />
+              </footer>
+            </>
+          ) : (
+            <section id="playlist-view">
+              <PlaylistGrid
+                playlists={playlists}
+                selectedId={selectedPlaylistId}
+                isLoading={isLoadingPlaylist}
+                onSelect={setSelectedPlaylistId}
+                onCreateFromCurrent={handleSaveAsPlaylist}
+                onDelete={(id) => {
+                  setPlaylists((prev) => prev.filter((p) => p.id !== id));
+                  if (selectedPlaylistId === id) setSelectedPlaylistId(null);
                 }}
               />
-            </Canvas>
-          </section>
-
-          <footer id="controls">
-            <button
-              id="play-pause"
-              disabled={!selectedTrack}
-              onClick={() => selectedTrack && toggleTrack(selectedTrack.id)}
-            >
-              {selectedTrack?.isPlaying ? "⏸" : "▶"}
-            </button>
-
-            {/* ── NUEVO: botón cíclico de modo de reproducción ── */}
-            <button
-              id="playmode-btn"
-              className={globalTheme.playMode !== 'single' ? 'active' : ''}
-              onClick={handlePlayModeCycle}
-              title={PLAY_MODE_LABEL[globalTheme.playMode]}
-              aria-label={PLAY_MODE_LABEL[globalTheme.playMode]}
-            >
-              {PLAY_MODE_ICON[globalTheme.playMode]}
-            </button>
-
-            <span id="time-current">
-              {formatTime(selectedTrack?.currentTime ?? 0)}
-            </span>
-            <input
-              type="range"
-              id="progress"
-              min="0"
-              max="1000"
-              disabled={!selectedTrack}
-              value={
-                selectedTrack?.duration
-                  ? (selectedTrack.currentTime / selectedTrack.duration) * 1000
-                  : 0
-              }
-              onChange={handleProgressChange}
-            />
-            <span id="time-total">
-              {formatTime(selectedTrack?.duration ?? 0)}
-            </span>
-            <input
-              type="range"
-              id="volume"
-              min="0"
-              max="1"
-              step="0.01"
-              disabled={!selectedTrack}
-              value={selectedTrack?.volume ?? 0.8}
-              onChange={handleVolumeChange}
-            />
-          </footer>
+            </section>
+          )}
         </main>
+        {appMode === "playlists" && (
+          <aside id="playlist-sidebar">
+            <PlaylistDetail
+              playlist={
+                playlists.find((p) => p.id === selectedPlaylistId) ?? null
+              }
+              onPlayTrack={handlePlayFromPlaylist}
+            />
+          </aside>
+        )}
       </div>
 
       {/* ── Rail derecho desplegable ── */}
-      <div id="right-rail">
-        <aside id="right-sidebar">
-          <div className="section">
-            <div className="section-title">Velocidad</div>
-
-            {editingRpm ? (
-              <input
-                type="text"
-                className="rpm-input"
-                value={rpmDraft}
-                onChange={(e) => setRpmDraft(e.target.value)}
-                onBlur={commitEditRpm}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitEditRpm();
-                  if (e.key === "Escape") setEditingRpm(false);
-                }}
-                autoFocus
-                disabled={!selectedTrack}
-              />
-            ) : (
-              <div
-                className="rpm-value"
-                onClick={startEditRpm}
-                title="Click para escribir un valor exacto"
-              >
-                {rpm.toFixed(2)}
-              </div>
-            )}
-
-            <div
-              className="rpm-unit"
-              onClick={resetRpm}
-              title="Click para volver a 33.33 RPM"
-            >
-              RPM
-            </div>
-
-            <input
-              type="range"
-              min="8"
-              max="100"
-              step="0.1"
-              value={rpm}
-              disabled={!selectedTrack}
-              onChange={handleRpmChange}
-            />
-          </div>
-
-          <div className="section">
-            <div className="section-title">Balance</div>
-
-            <div className="slider-row">
-              <div className="slider-label">
-                <span>Pan</span>
-                <span className="value">{formatPan(pan)}</span>
-              </div>
-              <input
-                type="range"
-                min="-1"
-                max="1"
-                step="0.01"
-                value={pan}
-                disabled={!selectedTrack}
-                onChange={handlePanChange}
-              />
-            </div>
-          </div>
-
-          <div className="section">
-            <div className="section-title">Dirección</div>
-
-            <button
-              className={`direction-toggle ${selectedTrack?.direction === -1 ? "reverse" : ""}`}
-              onClick={handleDirectionToggle}
-              disabled={!selectedTrack}
-            >
-              {selectedTrack?.direction === -1 ? "◀ Retroceder" : "Avanzar ▶"}
-            </button>
-          </div>
-
-          <div className="section">
-            <div className="section-title">Reverb</div>
-
-            <div className="slider-row">
-              <div className="slider-label">
-                <span>Mezcla</span>
-                <span className="value">{Math.round(reverb * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={reverb}
-                disabled={!selectedTrack}
-                onChange={handleReverbChange}
-              />
-            </div>
-          </div>
-
-          {selectedTrack && (
+      {appMode === "player" && (
+        <div id="right-rail">
+          <aside id="right-sidebar">
             <div className="section">
-              <div className="section-title">Tema del disco</div>
+              <div className="section-title">Velocidad</div>
 
-              <div className="theme-mode-toggle">
-                <button
-                  className={selectedTrack.themeMode === "disc" ? "active" : ""}
-                  onClick={() => setTrackThemeMode(selectedTrack.id, "disc")}
-                  disabled={!selectedTrack.themeColors}
-                  title={
-                    selectedTrack.themeColors
-                      ? "Colores extraídos de la portada"
-                      : "Esperando carátula…"
-                  }
+              {editingRpm ? (
+                <input
+                  type="text"
+                  className="rpm-input"
+                  value={rpmDraft}
+                  onChange={(e) => setRpmDraft(e.target.value)}
+                  onBlur={commitEditRpm}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitEditRpm();
+                    if (e.key === "Escape") setEditingRpm(false);
+                  }}
+                  autoFocus
+                  disabled={!selectedTrack}
+                />
+              ) : (
+                <div
+                  className="rpm-value"
+                  onClick={startEditRpm}
+                  title="Click para escribir un valor exacto"
                 >
-                  Disco
-                </button>
-                <button
-                  className={
-                    selectedTrack.themeMode === "custom" ? "active" : ""
-                  }
-                  onClick={() => setTrackThemeMode(selectedTrack.id, "custom")}
-                >
-                  Personalizado
-                </button>
+                  {rpm.toFixed(2)}
+                </div>
+              )}
+
+              <div
+                className="rpm-unit"
+                onClick={resetRpm}
+                title="Click para volver a 33.33 RPM"
+              >
+                RPM
               </div>
 
-              {selectedTrack.themeMode === "disc" &&
-                selectedTrack.themeColors && (
-                  <div className="theme-swatches">
-                    <div
-                      className="swatch"
-                      style={{ background: selectedTrack.themeColors[0] }}
-                      title={selectedTrack.themeColors[0]}
+              <input
+                type="range"
+                min="8"
+                max="100"
+                step="0.1"
+                value={rpm}
+                disabled={!selectedTrack}
+                onChange={handleRpmChange}
+              />
+            </div>
+
+            <div className="section">
+              <div className="section-title">Balance</div>
+              <div className="slider-row">
+                <div className="slider-label">
+                  <span>Pan</span>
+                  <span className="value">{formatPan(pan)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="-1"
+                  max="1"
+                  step="0.01"
+                  value={pan}
+                  disabled={!selectedTrack}
+                  onChange={handlePanChange}
+                />
+              </div>
+            </div>
+
+            <div className="section">
+              <div className="section-title">Dirección</div>
+              <button
+                className={`direction-toggle ${selectedTrack?.direction === -1 ? "reverse" : ""}`}
+                onClick={handleDirectionToggle}
+                disabled={!selectedTrack}
+              >
+                {selectedTrack?.direction === -1 ? "◀ Retroceder" : "Avanzar ▶"}
+              </button>
+            </div>
+
+            <div className="section">
+              <div className="section-title">Reverb</div>
+              <div className="slider-row">
+                <div className="slider-label">
+                  <span>Mezcla</span>
+                  <span className="value">{Math.round(reverb * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={reverb}
+                  disabled={!selectedTrack}
+                  onChange={handleReverbChange}
+                />
+              </div>
+            </div>
+
+            {selectedTrack && (
+              <div className="section">
+                <div className="section-title">Tema del disco</div>
+                <div className="theme-mode-toggle">
+                  <button
+                    className={
+                      selectedTrack.themeMode === "disc" ? "active" : ""
+                    }
+                    onClick={() => setTrackThemeMode(selectedTrack.id, "disc")}
+                    disabled={!selectedTrack.themeColors}
+                    title={
+                      selectedTrack.themeColors
+                        ? "Colores extraídos de la portada"
+                        : "Esperando carátula…"
+                    }
+                  >
+                    Disco
+                  </button>
+                  <button
+                    className={
+                      selectedTrack.themeMode === "custom" ? "active" : ""
+                    }
+                    onClick={() =>
+                      setTrackThemeMode(selectedTrack.id, "custom")
+                    }
+                  >
+                    Personalizado
+                  </button>
+                </div>
+
+                {selectedTrack.themeMode === "disc" &&
+                  selectedTrack.themeColors && (
+                    <div className="theme-swatches">
+                      <div
+                        className="swatch"
+                        style={{ background: selectedTrack.themeColors[0] }}
+                        title={selectedTrack.themeColors[0]}
+                      />
+                      <div
+                        className="swatch"
+                        style={{ background: selectedTrack.themeColors[1] }}
+                        title={selectedTrack.themeColors[1]}
+                      />
+                    </div>
+                  )}
+
+                {selectedTrack.themeMode === "custom" && (
+                  <div className="custom-colors">
+                    <input
+                      type="color"
+                      value={selectedTrack.customThemeColors?.[0] ?? "#0e0e12"}
+                      onChange={(e) =>
+                        setTrackCustomThemeColors(selectedTrack.id, [
+                          e.target.value,
+                          selectedTrack.customThemeColors?.[1] ?? "#15151b",
+                        ])
+                      }
                     />
-                    <div
-                      className="swatch"
-                      style={{ background: selectedTrack.themeColors[1] }}
-                      title={selectedTrack.themeColors[1]}
+                    <input
+                      type="color"
+                      value={selectedTrack.customThemeColors?.[1] ?? "#15151b"}
+                      onChange={(e) =>
+                        setTrackCustomThemeColors(selectedTrack.id, [
+                          selectedTrack.customThemeColors?.[0] ?? "#0e0e12",
+                          e.target.value,
+                        ])
+                      }
                     />
                   </div>
                 )}
+              </div>
+            )}
 
-              {selectedTrack.themeMode === "custom" && (
-                <div className="custom-colors">
-                  <input
-                    type="color"
-                    value={selectedTrack.customThemeColors?.[0] ?? "#0e0e12"}
-                    onChange={(e) =>
-                      setTrackCustomThemeColors(selectedTrack.id, [
-                        e.target.value,
-                        selectedTrack.customThemeColors?.[1] ?? "#15151b",
-                      ])
-                    }
-                  />
-                  <input
-                    type="color"
-                    value={selectedTrack.customThemeColors?.[1] ?? "#15151b"}
-                    onChange={(e) =>
-                      setTrackCustomThemeColors(selectedTrack.id, [
-                        selectedTrack.customThemeColors?.[0] ?? "#0e0e12",
-                        e.target.value,
-                      ])
-                    }
-                  />
+            <div className="section">
+              <div className="section-title">Ecualizador</div>
+
+              <div className="slider-row">
+                <div className="slider-label">
+                  <span>Bajos</span>
+                  <span className="value">
+                    {eqLow > 0 ? "+" : ""}
+                    {eqLow.toFixed(1)} dB
+                  </span>
                 </div>
-              )}
-            </div>
-          )}
-
-          <div className="section">
-            <div className="section-title">Ecualizador</div>
-
-            <div className="slider-row">
-              <div className="slider-label">
-                <span>Bajos</span>
-                <span className="value">
-                  {eqLow > 0 ? "+" : ""}
-                  {eqLow.toFixed(1)} dB
-                </span>
+                <input
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="0.5"
+                  value={eqLow}
+                  disabled={!selectedTrack}
+                  onChange={handleEqChange("low")}
+                />
               </div>
-              <input
-                type="range"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={eqLow}
-                disabled={!selectedTrack}
-                onChange={handleEqChange("low")}
-              />
-            </div>
 
-            <div className="slider-row">
-              <div className="slider-label">
-                <span>Medios</span>
-                <span className="value">
-                  {eqMid > 0 ? "+" : ""}
-                  {eqMid.toFixed(1)} dB
-                </span>
+              <div className="slider-row">
+                <div className="slider-label">
+                  <span>Medios</span>
+                  <span className="value">
+                    {eqMid > 0 ? "+" : ""}
+                    {eqMid.toFixed(1)} dB
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="0.5"
+                  value={eqMid}
+                  disabled={!selectedTrack}
+                  onChange={handleEqChange("mid")}
+                />
               </div>
-              <input
-                type="range"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={eqMid}
-                disabled={!selectedTrack}
-                onChange={handleEqChange("mid")}
-              />
-            </div>
 
-            <div className="slider-row">
-              <div className="slider-label">
-                <span>Agudos</span>
-                <span className="value">
-                  {eqHigh > 0 ? "+" : ""}
-                  {eqHigh.toFixed(1)} dB
-                </span>
+              <div className="slider-row">
+                <div className="slider-label">
+                  <span>Agudos</span>
+                  <span className="value">
+                    {eqHigh > 0 ? "+" : ""}
+                    {eqHigh.toFixed(1)} dB
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="0.5"
+                  value={eqHigh}
+                  disabled={!selectedTrack}
+                  onChange={handleEqChange("high")}
+                />
               </div>
-              <input
-                type="range"
-                min="-12"
-                max="12"
-                step="0.5"
-                value={eqHigh}
-                disabled={!selectedTrack}
-                onChange={handleEqChange("high")}
-              />
             </div>
-          </div>
-        </aside>
-      </div>
+          </aside>
+        </div>
+      )}
       <CustomizePanel
         open={customizeOpen}
         theme={globalTheme}
         onChange={setGlobalTheme}
         onClose={() => setCustomizeOpen(false)}
+      />
+
+      <PlaylistModal
+        open={playlistModalOpen}
+        defaultName=""
+        defaultDescription=""
+        candidateGroups={candidateGroups}
+        initialSelectedPaths={initialSelectedPaths}
+        onCancel={() => setPlaylistModalOpen(false)}
+        onConfirm={(name, description, selectedPaths) => {
+          const firstWithCover = tracks.find(
+            (t) =>
+              t.sourcePath &&
+              selectedPaths.includes(t.sourcePath) &&
+              t.coverUrl,
+          );
+          const coverUrl = firstWithCover?.coverUrl ?? null;
+
+          const playlist = createPlaylist(
+            name,
+            description,
+            selectedPaths,
+            coverUrl,
+          );
+          setPlaylists((prev) => [...prev, playlist]);
+          setPlaylistModalOpen(false);
+          setSelectedPlaylistId(playlist.id);
+        }}
       />
     </>
   );

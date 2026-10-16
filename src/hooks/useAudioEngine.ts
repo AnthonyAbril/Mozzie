@@ -13,6 +13,7 @@ export interface Track {
   stableKey: string;
   name: string;
   file: File;
+  sourcePath: string | null; // ← nuevo
   coverUrl: string | null;
   duration: number;
   currentTime: number;
@@ -205,10 +206,15 @@ export function useAudioEngine(options: EngineOptions = {}) {
   );
 
   // ---------- Añadir pista ----------
-  const addTrack = useCallback(
-    async (file: File, coverUrl: string | null = null): Promise<string> => {
+  const addTrackFromArrayBuffer = useCallback(
+    async (
+      name: string,
+      stableKey: string,
+      arrayBuffer: ArrayBuffer,
+      coverUrl: string | null = null,
+      sourcePath: string | null = null,
+    ): Promise<string> => {
       const ctx = getCtx();
-      const arrayBuffer = await file.arrayBuffer();
       const buffer = await ctx.decodeAudioData(arrayBuffer);
 
       const gain = ctx.createGain();
@@ -242,7 +248,6 @@ export function useAudioEngine(options: EngineOptions = {}) {
       const convolver = ctx.createConvolver();
       convolver.buffer = getImpulse(ctx);
 
-      const stableKey = `${file.name}_${file.size}`;
       const storedTheme = loadAllDiscThemes()[stableKey];
 
       gain.connect(lowShelf);
@@ -256,6 +261,8 @@ export function useAudioEngine(options: EngineOptions = {}) {
       convolver.connect(ctx.destination);
 
       const id = crypto.randomUUID();
+      const file = new File([arrayBuffer], name, { type: "audio/mpeg" });
+
       internalsRef.current.set(id, {
         buffer,
         reversedBuffer: null,
@@ -282,8 +289,9 @@ export function useAudioEngine(options: EngineOptions = {}) {
         {
           id,
           stableKey,
-          name: file.name,
+          name,
           file,
+          sourcePath,
           coverUrl,
           duration: buffer.duration,
           currentTime: 0,
@@ -300,7 +308,6 @@ export function useAudioEngine(options: EngineOptions = {}) {
         },
       ]);
 
-      // Creación diferida del buffer invertido (no bloquea el play inicial)
       setTimeout(() => {
         const still = internalsRef.current.get(id);
         if (still && !still.reversedBuffer) {
@@ -316,6 +323,45 @@ export function useAudioEngine(options: EngineOptions = {}) {
     },
     [getCtx, getImpulse, getOrCreateReversedBuffer],
   );
+
+  const addTrack = useCallback(
+    async (file: File, coverUrl: string | null = null): Promise<string> => {
+      const arrayBuffer = await file.arrayBuffer();
+      const stableKey = `${file.name}_${file.size}`;
+      return addTrackFromArrayBuffer(
+        file.name,
+        stableKey,
+        arrayBuffer,
+        coverUrl,
+        null,
+      );
+    },
+    [addTrackFromArrayBuffer],
+  );
+
+  const clearAll = useCallback(() => {
+    for (const internal of internalsRef.current.values()) {
+      if (internal.source) {
+        internal.source.onended = null;
+        try {
+          internal.source.stop();
+        } catch {
+          /* noop */
+        }
+        internal.source.disconnect();
+      }
+      internal.gain.disconnect();
+      internal.lowShelf.disconnect();
+      internal.midPeak.disconnect();
+      internal.highShelf.disconnect();
+      internal.panner.disconnect();
+      internal.dryGain.disconnect();
+      internal.wetGain.disconnect();
+      internal.convolver.disconnect();
+    }
+    internalsRef.current.clear();
+    setTracks([]);
+  }, []);
 
   const reorderTracks = useCallback((orderedIds: string[]) => {
     setTracks((prev) => {
@@ -462,7 +508,10 @@ export function useAudioEngine(options: EngineOptions = {}) {
         if (rate < 0 && pos <= 0.01) return;
 
         const source = startSourceAt(internal, ctx, pos, rate < 0);
-        if (source) attachOnended(source, internal, id, ctx);
+        if (source) {
+          attachOnended(source, internal, id, ctx);
+          patchTrack(id, { isPlaying: true });   // ← NUEVO
+        }
         return;
       }
 
@@ -493,7 +542,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
         );
       }
     },
-    [getCtx, freezePosition, startSourceAt, attachOnended],
+    [getCtx, freezePosition, startSourceAt, attachOnended, patchTrack],
   );
 
   // ---------- Base rate (RPM) ----------
@@ -788,6 +837,9 @@ export function useAudioEngine(options: EngineOptions = {}) {
   return {
     tracks,
     addTrack,
+
+    addTrackFromArrayBuffer, // ← nuevo
+    clearAll, // ← nuevo
     playTrack,
     pauseTrack,
     toggleTrack,

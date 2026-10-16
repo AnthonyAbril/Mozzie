@@ -30,7 +30,8 @@ export function ResponsiveCamera({ baseFov = 45, baseAspect = 1.5 }: { baseFov?:
 interface Props {
   isPlaying: boolean;
   coverUrl: string | null;
-  baseRate: number; // ← NUEVO
+  baseRate: number;
+  direction: 1 | -1;         // ← NUEVO
   onScratchStart: () => void;
   onScratchRate: (rate: number) => void;
   onScratchEnd: () => void;
@@ -71,6 +72,7 @@ export function ScratchableVinyl({
   isPlaying,
   coverUrl,
   baseRate,
+  direction,      // ← NUEVO
   onScratchStart,
   onScratchRate,
   onScratchEnd,
@@ -106,7 +108,7 @@ export function ScratchableVinyl({
 
     // ── 1. Auto-rotación del disco (SIEMPRE, independiente del reset)
     if (groupRef.current && s.mode !== 'scratch' && isPlaying) {
-      groupRef.current.rotation.y += delta * RADS_PER_SEC_33 * baseRate;
+      groupRef.current.rotation.y += delta * RADS_PER_SEC_33 * baseRate * direction;
     }
 
     // ── 2. Animación de reset de cámara (no corta el resto)
@@ -228,7 +230,6 @@ export function ScratchableVinyl({
       if (s.mode !== 'idle') return;
 
       if (e.button === 0) {
-        if (!isPlaying) return;
         if (!getDiscHit(e.clientX, e.clientY)) return;
         const angle = getAngleAt(e.clientX, e.clientY);
         if (angle === null) return;

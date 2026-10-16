@@ -1,8 +1,10 @@
-const { app, BrowserWindow, Menu } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require("electron");
 const path = require("path");
+const fs = require("fs");
 
-// Quita el menú superior (File/Edit/View/...)
 Menu.setApplicationMenu(null);
+
+const AUDIO_EXT = /\.(mp3|wav|ogg|flac|m4a|aac|webm)$/i;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -11,7 +13,6 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#0e0e12",
-    // ── NUEVO: barra de título oculta, con overlay nativo (Win/Linux)
     titleBarStyle: "hidden",
     titleBarOverlay: {
       color: "#15151b",
@@ -19,6 +20,7 @@ function createWindow() {
       height: 36,
     },
     webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -34,7 +36,58 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  ipcMain.handle("dialog:openFiles", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        {
+          name: "Audio",
+          extensions: ["mp3", "wav", "ogg", "flac", "m4a", "aac", "webm"],
+        },
+      ],
+    });
+    return canceled ? [] : filePaths;
+  });
+
+  ipcMain.handle("dialog:openFolder", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+    });
+    if (canceled || !filePaths[0]) return [];
+    const folder = filePaths[0];
+    try {
+      return fs
+        .readdirSync(folder)
+        .filter((f) => AUDIO_EXT.test(f))
+        .map((f) => path.join(folder, f));
+    } catch (err) {
+      console.warn("No se pudo leer la carpeta:", err);
+      return [];
+    }
+  });
+
+  ipcMain.handle("fs:readFile", async (_e, filePath) => {
+    try {
+      const buf = fs.readFileSync(filePath);
+      return {
+        ok: true,
+        data: buf.buffer.slice(
+          buf.byteOffset,
+          buf.byteOffset + buf.byteLength,
+        ),
+      };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle("fs:exists", async (_e, filePath) => {
+    return fs.existsSync(filePath);
+  });
+
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

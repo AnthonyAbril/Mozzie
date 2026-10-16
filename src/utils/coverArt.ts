@@ -37,26 +37,36 @@ async function searchCoverOnline(
   artist: string,
   title: string
 ): Promise<string | null> {
-  // Limpiar título: quitar (feat. X), [Remastered], etc.
-  const cleanTitle = title.replace(/\s*[\(\[].[^\)\]]*[\)\]]\s*/g, ' ').trim();
-  const term = encodeURIComponent(`${artist} ${cleanTitle}`.trim());
-  if (!term) return null;
+  const cleanTitle = title.replace(/\s*[\(\[].[^\)\]]*[\)\]]\s*/g, " ").trim();
+  
+  const trySearch = async (query: string): Promise<string | null> => {
+    try {
+      const res = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1`
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const art: string | undefined = data.results?.[0]?.artworkUrl100;
+      return art ? art.replace("100x100bb", "600x600bb") : null;
+    } catch {
+      return null;
+    }
+  };
 
-  try {
-    const res = await fetch(
-      `https://itunes.apple.com/search?term=${term}&entity=song&limit=1`
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const art: string | undefined = data.results?.[0]?.artworkUrl100;
-    if (!art) return null;
-
-    // iTunes devuelve 100x100; podemos pedir 600x600 sustituyendo
-    return art.replace('100x100bb', '600x600bb');
-  } catch (err) {
-    console.warn('iTunes search failed:', err);
-    return null;
+  // Intento 1: búsqueda limpia (carátula del álbum)
+  const base = `${artist} ${cleanTitle}`.trim();
+  if (base) {
+    const r1 = await trySearch(base);
+    if (r1) return r1;
   }
+
+  // Intento 2: solo título
+  if (cleanTitle) {
+    const r2 = await trySearch(cleanTitle);
+    if (r2) return r2;
+  }
+
+  return null;
 }
 
 /** Descarga una URL externa y la convierte en blob URL para evitar CORS */
