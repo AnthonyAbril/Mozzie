@@ -20,7 +20,7 @@
       { target: "portable", arch: ["x64"] },
     ],
     icon: "electron/resources/icon.ico",
-    artifactName: "Mozzie-${version}-Windows.${ext}",
+    // ← artifactName ELIMINADO de aquí
   },
   nsis: {
     oneClick: false,
@@ -30,5 +30,9 @@
     createStartMenuShortcut: true,
     shortcutName: "Mozzie",
     deleteAppDataOnUninstall: false,
+    artifactName: "Mozzie-${version}-Windows-Setup.${ext}",
+  },
+  portable: {
+    artifactName: "Mozzie-${version}-Windows-Portable.${ext}",
   },
 }
