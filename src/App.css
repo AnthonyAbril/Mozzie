@@ -1275,3 +1275,91 @@ button, input, .track-item, #track-list {
   border-color: #dc2626;
   color: white;
 }
+
+
+
+
+/* ===== Controles del sidebar (Buscador + Botones) ===== */
+.sidebar-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-search {
+  display: flex;
+  width: 100%;
+}
+
+.sidebar-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+/* Clases de utilidad para el flexbox */
+.flex-1 { flex: 1; }
+.w-full { width: 100%; }
+
+.dropdown-container {
+  position: relative;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.toolbar-btn:hover { 
+  background: var(--bg-hover); 
+  border-color: var(--primary); 
+}
+
+.toolbar-btn.icon-btn { 
+  padding: 8px 10px; 
+  font-size: 14px; 
+}
+
+.toolbar-btn.danger { 
+  color: #f87171; 
+  border-color: #7f1d1d; 
+}
+
+.toolbar-btn.danger:hover { 
+  background: #7f1d1d; 
+  border-color: #dc2626; 
+  color: white; 
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.search-input:focus { 
+  border-color: var(--primary); 
+}

@@ -740,6 +740,27 @@ export function useAudioEngine(options: EngineOptions = {}) {
     [],
   );
 
+  const removeTrack = useCallback((id: string) => {
+    const internal = internalsRef.current.get(id);
+    if (internal) {
+      if (internal.source) {
+        internal.source.onended = null;
+        try { internal.source.stop(); } catch {}
+        internal.source.disconnect();
+      }
+      internal.gain.disconnect();
+      internal.lowShelf.disconnect();
+      internal.midPeak.disconnect();
+      internal.highShelf.disconnect();
+      internal.panner.disconnect();
+      internal.dryGain.disconnect();
+      internal.wetGain.disconnect();
+      internal.convolver.disconnect();
+      internalsRef.current.delete(id);
+    }
+    setTracks((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   // ---------- Rastreo de posición ----------
   useEffect(() => {
     let rafId: number;
@@ -847,7 +868,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
   return {
     tracks,
     addTrack,
-
+    removeTrack, // ← AÑADIR AQUÍ
     addTrackFromArrayBuffer, // ← nuevo
     clearAll, // ← nuevo
     playTrack,
