@@ -273,11 +273,14 @@ export function ScratchableVinyl({
         if (groupRef.current) groupRef.current.rotation.y += dAngle;
 
         const angularVelocity = dAngle / dt;
-        const rate = THREE.MathUtils.clamp(
+        let rate = THREE.MathUtils.clamp(
           angularVelocity / RADS_PER_SEC_33,
           -4,
           4
         );
+        
+        rate *= spinDirection;  // Multiplicamos por spinDirection para que el audio coincida con el giro visual
+
         onScratchRate(rate);
 
         s.lastAngle = angle;
@@ -329,6 +332,21 @@ export function ScratchableVinyl({
       canvas.removeEventListener('pointercancel', onUp);
     };
   }, [camera, gl, controls, isPlaying, onScratchStart, onScratchRate, onScratchEnd, onSwipe]);
+
+  useEffect(() => {
+    return () => {
+      if (discRef.current) {
+        discRef.current.geometry.dispose();
+        if (Array.isArray(discRef.current.material)) {
+          discRef.current.material.forEach((m) => m.dispose());
+        } else {
+          discRef.current.material.dispose();
+        }
+      }
+      // Si usas useTexture de drei, este se encarga de la textura,
+      // pero si cargas texturas manualmente, haz un .dispose() aquí también.
+    };
+  }, []);
 
   return (
     <group ref={groupRef}>

@@ -398,6 +398,13 @@ function App() {
       for (const entry of valid) {
         const res = await window.mozzie!.readFile(entry.path);
         if (!res.ok) continue;
+
+        // 🚨 NUEVO: Ignorar archivos de más de 100MB
+        if (res.data.byteLength > 100 * 1024 * 1024) {
+          console.warn("Omitiendo archivo enorme de la biblioteca:", entry.path);
+          continue;
+        }
+
         const name = entry.name || entry.path.split(/[\\/]/).pop() || entry.path;
         await addTrackFromArrayBuffer(name, entry.path, res.data, null, entry.path);
       }
@@ -444,6 +451,15 @@ function App() {
             console.warn("No se pudo leer:", p);
             continue;
           }
+
+          // 🚨 NUEVO: Ignorar archivos de más de 100MB para evitar OOM
+          if (res.data.byteLength > 100 * 1024 * 1024) {
+            const name = p.split(/[\\/]/).pop() ?? p;
+            console.warn(`Omitiendo archivo demasiado grande (>100MB): ${name}`);
+            // Opcional: podrías mostrar un alert() aquí si quieres avisar al usuario
+            continue; 
+          }
+
           const name = p.split(/[\\/]/).pop() ?? p;
           const stableKey = p;
           const id = await addTrackFromArrayBuffer(name, stableKey, res.data, null, p);

@@ -308,6 +308,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
         },
       ]);
 
+      /*
       setTimeout(() => {
         const still = internalsRef.current.get(id);
         if (still && !still.reversedBuffer) {
@@ -318,6 +319,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
           }
         }
       }, 1500);
+      */
 
       return id;
     },
@@ -833,6 +835,14 @@ export function useAudioEngine(options: EngineOptions = {}) {
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
   }, [getPosition, freezePosition]);
+
+  useEffect(() => {
+    return () => {
+      if (ctxRef.current && ctxRef.current.state !== 'closed') {
+        ctxRef.current.close();
+      }
+    };
+  }, []);
 
   return {
     tracks,

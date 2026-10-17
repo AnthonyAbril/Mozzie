@@ -1,5 +1,6 @@
 /** Icono de vinilo por defecto, como data URI SVG */
-export const DEFAULT_COVER =
+
+export const DEFAULT_COVER = "./mozie_ico.png";
   "data:image/svg+xml;charset=utf-8," +
   encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
@@ -11,3 +12,4 @@ export const DEFAULT_COVER =
       <circle cx="256" cy="256" r="8" fill="#3b82f6"/>
     </svg>`
   );
+

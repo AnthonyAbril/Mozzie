@@ -34,6 +34,12 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  win.webContents.on('render-process-gone', (event, details) => {
+    console.error('💥 El renderer ha crasheado:', details.reason, details.exitCode);
+    // Si quieres, puedes recargar automáticamente:
+    // win.reload(); 
+  });
 }
 
 app.whenReady().then(() => {
