@@ -32,6 +32,7 @@ interface Props {
   coverUrl: string | null;
   baseRate: number;
   direction: 1 | -1;         // ← NUEVO
+  spinDirection: 1 | -1;   // ← NUEVO
   onScratchStart: () => void;
   onScratchRate: (rate: number) => void;
   onScratchEnd: () => void;
@@ -73,6 +74,7 @@ export function ScratchableVinyl({
   coverUrl,
   baseRate,
   direction,      // ← NUEVO
+  spinDirection,   // ← NUEVO
   onScratchStart,
   onScratchRate,
   onScratchEnd,
@@ -108,7 +110,7 @@ export function ScratchableVinyl({
 
     // ── 1. Auto-rotación del disco (SIEMPRE, independiente del reset)
     if (groupRef.current && s.mode !== 'scratch' && isPlaying) {
-      groupRef.current.rotation.y += delta * RADS_PER_SEC_33 * baseRate * direction;
+      groupRef.current.rotation.y += delta * RADS_PER_SEC_33 * baseRate * direction * spinDirection;
     }
 
     // ── 2. Animación de reset de cámara (no corta el resto)

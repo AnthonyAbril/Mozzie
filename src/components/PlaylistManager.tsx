@@ -1,4 +1,5 @@
 import type { Playlist } from "../utils/playlistStorage";
+import { DEFAULT_COVER } from "../utils/defaultCover";
 
 interface Props {
   playlists: Playlist[];
@@ -58,13 +59,8 @@ export function PlaylistGrid({
             >
               <div
                 className="playlist-cover"
-                style={
-                  pl.coverUrl
-                    ? { backgroundImage: `url(${pl.coverUrl})` }
-                    : undefined
-                }
+                style={{ backgroundImage: `url(${pl.coverUrl ?? DEFAULT_COVER})` }}
               >
-                {!pl.coverUrl && <span className="no-cover">♪</span>}
               </div>
               <div className="playlist-info">
                 <div className="playlist-name">{pl.name}</div>

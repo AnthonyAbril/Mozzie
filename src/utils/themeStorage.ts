@@ -14,6 +14,7 @@ export interface StoredGlobalTheme {
   brightness: number;
   singlePlayback: boolean;    
   playMode: PlayMode;         // ← nuevo
+  vinylSpinDirection: 1 | -1;   // ← NUEVO
 }
 
 export const DEFAULT_GLOBAL_THEME: StoredGlobalTheme = {
@@ -25,6 +26,7 @@ export const DEFAULT_GLOBAL_THEME: StoredGlobalTheme = {
   brightness: 0,
   singlePlayback: false,      // ← por defecto, multi-play (como ahora)
   playMode: 'single',         // ← por defecto: se queda esperando
+  vinylSpinDirection: -1,       // ← por defecto antihorario (más realista)
 };
 
 const DISCS_KEY = 'mozzie:discThemes';

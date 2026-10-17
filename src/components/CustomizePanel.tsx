@@ -128,6 +128,27 @@ export function CustomizePanel({ open, theme, onChange, onClose }: Props) {
           </div>
 
           <div className="modal-section">
+            <div className="modal-section-title">Sentido de giro del vinilo</div>
+            <div className="theme-mode-toggle">
+              <button
+                className={theme.vinylSpinDirection === 1 ? 'active' : ''}
+                onClick={() => onChange({ vinylSpinDirection: 1 })}
+              >
+                ↻ Horario
+              </button>
+              <button
+                className={theme.vinylSpinDirection === -1 ? 'active' : ''}
+                onClick={() => onChange({ vinylSpinDirection: -1 })}
+              >
+                ↺ Antihorario
+              </button>
+            </div>
+            <p className="modal-hint">
+              Dirección visual del disco cuando la canción avanza. No afecta al audio.
+            </p>
+          </div>
+
+          <div className="modal-section">
             <div className="modal-section-title">Brillo del tema extraído</div>
 
             <div className="slider-row">

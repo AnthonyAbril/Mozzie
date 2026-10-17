@@ -30,10 +30,10 @@ import {
 } from "./utils/playlistStorage";
 import { PlaylistGrid, PlaylistDetail } from "./components/PlaylistManager";
 
-import {
-  PlaylistModal,
-  type CandidateGroup,
-} from "./components/PlaylistModal";
+import { PlaylistModal, type CandidateGroup } from "./components/PlaylistModal";
+
+import { ConfirmModal } from "./components/ConfirmModal";
+import { DEFAULT_COVER } from "./utils/defaultCover";
 
 import "./App.css";
 
@@ -122,11 +122,17 @@ function App() {
 
   const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
+  
+  const [confirmEmptyInbox, setConfirmEmptyInbox] = useState(false);
 
   // ── 2. Refs para el callback del engine (deben ir ANTES del engine) ──
   const stateRef = useRef<any>(null);
   const playTrackRef = useRef<((id: string) => void) | null>(null);
   const pauseTrackRef = useRef<((id: string) => void) | null>(null);
+  
+  const coverProcessedRef = useRef(new Set<string>());
+  const paletteProcessedRef = useRef(new Set<string>());
+
 
   // ── 3. ÚNICA llamada al engine, con el callback ──
   const {
@@ -249,6 +255,7 @@ function App() {
 
   const animatedTheme = useAnimatedTheme(effectiveTheme, 600);
 
+  // 1. Re-extrae TODAS las paletas cuando cambia el boost/brightness
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -257,18 +264,70 @@ function App() {
         const palette = await extractPaletteFromImage(
           track.coverUrl,
           globalTheme.satBoost,
-          globalTheme.brightness, // ← nuevo
+          globalTheme.brightness,
         );
         if (cancelled) return;
         setTrackExtractedColors(track.id, palette);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-    // Solo re-extrae cuando el boost cambia
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalTheme.satBoost, globalTheme.brightness]);
+
+  // 2. Safety net: extrae cover para pistas con sourcePath pero sin coverUrl
+  useEffect(() => {
+    const targets = tracks.filter(
+      (t) => t.sourcePath && !t.coverUrl && !coverProcessedRef.current.has(t.id),
+    );
+    if (targets.length === 0) return;
+    for (const t of targets) coverProcessedRef.current.add(t.id);
+
+    // Fuego y olvido (paralelo, sin cancelación)
+    for (const t of targets) {
+      (async () => {
+        try {
+          const { coverUrl } = await getCoverArt(t.file);
+          if (coverUrl) setTrackCover(t.id, coverUrl);
+        } catch {
+          /* sin carátula */
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    tracks
+      .map((t) => `${t.id}:${t.sourcePath ? "s" : "-"}:${t.coverUrl ? "c" : "-"}`)
+      .join("|"),
+  ]);
+
+  // 3. Safety net: extrae palette para pistas con coverUrl pero sin themeColors
+  useEffect(() => {
+    const targets = tracks.filter(
+      (t) => t.coverUrl && !t.themeColors && !paletteProcessedRef.current.has(t.id),
+    );
+    if (targets.length === 0) return;
+    for (const t of targets) paletteProcessedRef.current.add(t.id);
+
+    for (const t of targets) {
+      (async () => {
+        try {
+          const palette = await extractPaletteFromImage(
+            t.coverUrl!,
+            globalTheme.satBoost,
+            globalTheme.brightness,
+          );
+          setTrackExtractedColors(t.id, palette);
+        } catch {
+          /* noop */
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    tracks
+      .map((t) => `${t.id}:${t.coverUrl ? "c" : "-"}:${t.themeColors ? "p" : "-"}`)
+      .join("|"),
+  ]);
 
   const playlistsSignature = useMemo(
     () =>
@@ -336,34 +395,11 @@ function App() {
         return;
       }
 
-      // Cargar sin reproducir
       for (const entry of valid) {
         const res = await window.mozzie!.readFile(entry.path);
         if (!res.ok) continue;
-        const name =
-          entry.name || entry.path.split(/[\\/]/).pop() || entry.path;
-        const id = await addTrackFromArrayBuffer(
-          name,
-          entry.path,
-          res.data,
-          null,
-          entry.path,
-        );
-        try {
-          const file = new File([res.data], name, { type: "audio/mpeg" });
-          const { coverUrl } = await getCoverArt(file);
-          if (coverUrl) {
-            setTrackCover(id, coverUrl);
-            const palette = await extractPaletteFromImage(
-              coverUrl,
-              globalTheme.satBoost,
-              globalTheme.brightness,
-            );
-            setTrackExtractedColors(id, palette);
-          }
-        } catch {
-          /* sin carátula */
-        }
+        const name = entry.name || entry.path.split(/[\\/]/).pop() || entry.path;
+        await addTrackFromArrayBuffer(name, entry.path, res.data, null, entry.path);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -410,26 +446,8 @@ function App() {
           }
           const name = p.split(/[\\/]/).pop() ?? p;
           const stableKey = p;
-
           const id = await addTrackFromArrayBuffer(name, stableKey, res.data, null, p);
-          addedIds.push(id);   // ← acumula ids
-
-          // Carátula en background
-          try {
-            const file = new File([res.data], name, { type: "audio/mpeg" });
-            const { coverUrl } = await getCoverArt(file);
-            if (coverUrl) {
-              setTrackCover(id, coverUrl);
-              const palette = await extractPaletteFromImage(
-                coverUrl,
-                globalTheme.satBoost,
-                globalTheme.brightness,
-              );
-              setTrackExtractedColors(id, palette);
-            }
-          } catch {
-            /* sin carátula */
-          }
+          addedIds.push(id);
         } catch (err) {
           console.warn("Error cargando pista:", p, err);
         }
@@ -442,14 +460,7 @@ function App() {
 
       return addedIds;
     },
-    [
-      addTrackFromArrayBuffer,
-      setTrackCover,
-      setTrackExtractedColors,
-      playExclusive,
-      globalTheme.satBoost,
-      globalTheme.brightness,
-    ],
+    [addTrackFromArrayBuffer, playExclusive],
   );
 
   const handleOpenFiles = useCallback(async () => {
@@ -468,6 +479,8 @@ function App() {
     clearAll();
     saveLibrary([]);
     setSelectedTrackId(null);
+    coverProcessedRef.current.clear();
+    paletteProcessedRef.current.clear();
   };
 
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -625,28 +638,22 @@ const handleSaveAsPlaylist = () => {
     tracks.map((t) => t.sourcePath).join("|"),
   ]);
 
-  const handlePlayFromPlaylist = async (
-    playlist: Playlist,
-    trackIndex: number,
-  ) => {
+  const handlePlayFromPlaylist = async (playlist: Playlist, trackIndex: number) => {
     if (isLoadingPlaylist) return;
     setIsLoadingPlaylist(true);
     try {
-      // 1. Limpiar todo lo que había en el sidebar
       clearAll();
       setSelectedTrackId(null);
+      coverProcessedRef.current.clear();
+      paletteProcessedRef.current.clear();
 
-      // 2. Cargar solo las pistas de esta playlist
       const ids = await loadPathsIntoLibrary(playlist.trackPaths, false);
       setActivePlaylistId(playlist.id);
 
-      // 3. Seleccionar y reproducir la pista pulsada
       if (ids[trackIndex]) {
         setSelectedTrackId(ids[trackIndex]);
         playExclusive(ids[trackIndex]);
       }
-
-      // 4. Volver al modo player
       setAppMode("player");
     } finally {
       setIsLoadingPlaylist(false);
@@ -660,13 +667,12 @@ const handleSaveAsPlaylist = () => {
       clearAll();
       setSelectedTrackId(null);
       setActivePlaylistId(null);
+      coverProcessedRef.current.clear();
+      paletteProcessedRef.current.clear();
 
       const inbox = loadLibrary();
       if (inbox.length > 0) {
-        await loadPathsIntoLibrary(
-          inbox.map((e) => e.path),
-          false,
-        );
+        await loadPathsIntoLibrary(inbox.map((e) => e.path), false);
       }
     } finally {
       setIsLoadingPlaylist(false);
@@ -744,9 +750,7 @@ const handleSaveAsPlaylist = () => {
             {activePlaylistId ? (
               <>
                 <span className="view-name">
-                  🎵{" "}
-                  {playlists.find((p) => p.id === activePlaylistId)?.name ??
-                    "Playlist"}
+                  🎵 {playlists.find((p) => p.id === activePlaylistId)?.name ?? "Playlist"}
                 </span>
                 <button
                   className="view-inbox-btn"
@@ -758,7 +762,17 @@ const handleSaveAsPlaylist = () => {
                 </button>
               </>
             ) : (
-              <span className="view-name">📥 Bandeja de entrada</span>
+              <>
+                <span className="view-name">📥 Bandeja de entrada</span>
+                <button
+                  className="view-inbox-btn view-empty-btn"
+                  onClick={() => setConfirmEmptyInbox(true)}
+                  disabled={isLoadingPlaylist || tracks.length === 0}
+                  title="Vaciar bandeja de entrada"
+                >
+                  🗑 Vaciar
+                </button>
+              </>
             )}
           </div>
           {appMode === "player" ? (
@@ -825,9 +839,10 @@ const handleSaveAsPlaylist = () => {
                   />
                   <ScratchableVinyl
                     isPlaying={selectedTrack?.isPlaying ?? false}
-                    coverUrl={selectedTrack?.coverUrl ?? null}
+                    coverUrl={selectedTrack?.coverUrl ?? DEFAULT_COVER}
                     baseRate={selectedTrack?.baseRate ?? 1}
                     direction={selectedTrack?.direction ?? 1}
+                    spinDirection={globalTheme.vinylSpinDirection}
                     onScratchStart={onScratchStart}
                     onScratchRate={onScratchRate}
                     onScratchEnd={onScratchEnd}
@@ -898,9 +913,10 @@ const handleSaveAsPlaylist = () => {
 
                   <ScratchableVinyl
                     isPlaying={selectedTrack?.isPlaying ?? false}
-                    coverUrl={selectedTrack?.coverUrl ?? null}
+                    coverUrl={selectedTrack?.coverUrl ?? DEFAULT_COVER} // ← Añadido DEFAULT_COVER
                     baseRate={selectedTrack?.baseRate ?? 1}
-                    direction={selectedTrack?.direction ?? 1} // ← NUEVO
+                    direction={selectedTrack?.direction ?? 1}
+                    spinDirection={globalTheme.vinylSpinDirection}      // ← Añadido spinDirection
                     onScratchStart={onScratchStart}
                     onScratchRate={onScratchRate}
                     onScratchEnd={onScratchEnd}
@@ -1274,6 +1290,18 @@ const handleSaveAsPlaylist = () => {
           setPlaylistModalOpen(false);
           setSelectedPlaylistId(playlist.id);
         }}
+      />
+      <ConfirmModal
+        open={confirmEmptyInbox}
+        title="Vaciar bandeja de entrada"
+        message="¿Seguro que quieres eliminar todas las canciones de la bandeja de entrada? Esta acción no se puede deshacer."
+        confirmLabel="Vaciar"
+        cancelLabel="Cancelar"
+        onConfirm={() => {
+          handleClearAll();
+          setConfirmEmptyInbox(false);
+        }}
+        onCancel={() => setConfirmEmptyInbox(false)}
       />
     </>
   );
