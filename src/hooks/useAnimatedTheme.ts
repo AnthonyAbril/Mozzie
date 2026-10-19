@@ -5,6 +5,7 @@ interface ThemeColors {
   primary: string;
   bg1: string;
   bg2: string;
+  panel: string; // <-- NUEVO
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -51,10 +52,11 @@ export function useAnimatedTheme(target: ThemeColors, duration = 600): ThemeColo
         primary: mixHex(from.primary, to.primary, eased),
         bg1: mixHex(from.bg1, to.bg1, eased),
         bg2: mixHex(from.bg2, to.bg2, eased),
+        panel: mixHex(from.panel, to.panel, eased),
       };
       animatedRef.current = next;
       setAnimated(next);
-      applyThemeColors(next.primary, next.bg1, next.bg2);
+      applyThemeColors(next.primary, next.bg1, next.panel);
       if (t < 1) rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -62,8 +64,7 @@ export function useAnimatedTheme(target: ThemeColors, duration = 600): ThemeColo
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.primary, target.bg1, target.bg2, duration]);
+  }, [target.primary, target.bg1, target.bg2, target.panel, duration]);
 
   return animated;
 }

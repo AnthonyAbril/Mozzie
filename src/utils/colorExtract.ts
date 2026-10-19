@@ -25,39 +25,31 @@ function hslToHex(h: number, s: number, l: number): string {
   else if (h < 240) [r, g, b] = [0, x, c];
   else if (h < 300) [r, g, b] = [x, 0, c];
   else              [r, g, b] = [c, 0, x];
-  const toHex = (v: number) =>
-    Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  const toHex = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-/** Convierte un color saturado a un fondo oscuro pero VIVO */
-function toDarkBg(
-  h: number,
-  s: number,
-  targetL: number,
-  satBoost = 1
-): string {
-  // Boost agresivo: conservamos casi toda la saturación original
+function toDarkBg(h: number, s: number, targetL: number, satBoost = 1): string {
   const boosted = s * 0.95 * satBoost;
-  // Piso mínimo: incluso los colores poco saturados reciben un tinte visible
   const sat = Math.min(Math.max(boosted, 0.35), 0.85);
   return hslToHex(h, sat, targetL);
 }
 
-const FALLBACK: [string, string] = ['#0e0e12', '#15151b'];
+const FALLBACK: [string, string, string] = ['#0e0e12', '#15151b', '#0a0a0f'];
 
-/** Extrae dos colores dominantes de una portada y los convierte en fondos vivos */
 export function extractPaletteFromImage(
   imageUrl: string,
   satBoost = 1,
-  brightness = 0
-): Promise<[string, string]> {
+  brightness = 0,
+  grayscale = false, // <--- NUEVO
+  grayscaleDarkness: [number, number, number] = [0.12, 0.3, 0.45] // <--- NUEVO
+): Promise<[string, string, string]> { // <--- Ahora devuelve 3
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
-        const size = 64; // subimos de 48 a 64 para más muestras
+        const size = 64;
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
@@ -66,18 +58,14 @@ export function extractPaletteFromImage(
         ctx.drawImage(img, 0, 0, size, size);
         const { data } = ctx.getImageData(0, 0, size, size);
 
-        // Buckets de 24° (15 buckets) → granularidad de color más fina
         const buckets = Array.from({ length: 15 }, () => ({
           h: 0, s: 0, count: 0, satSum: 0, satMax: 0,
         }));
 
         for (let i = 0; i < data.length; i += 4) {
           const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
-          if (a < 128) continue; // ignorar transparentes
-
+          if (a < 128) continue;
           const [h, s, l] = rgbToHsl(r, g, b);
-
-          // Filtros más estrictos: fuera grises y extremos de luminosidad
           if (s < 0.22) continue;
           if (l < 0.12 || l > 0.90) continue;
 
@@ -96,59 +84,48 @@ export function extractPaletteFromImage(
             s: b.count > 0 ? b.s / b.count : 0,
             satMax: b.satMax,
             count: b.count,
-            // Puntuación: premia cantidad de píxeles Y saturación máxima del bucket
             score: b.count * (b.satMax + 0.3),
           }))
           .filter((b) => b.count >= 5)
           .sort((a, b) => b.score - a.score);
 
-        // Luminosidades dependientes de brightness
-        const l1 = 0.08 + brightness * 0.22;   // fondo principal
-        const l2 = 0.24 + brightness * 0.22;   // paneles
-
         if (ranked.length === 0) {
-            const retry = buckets
-                .map((b, i) => ({
-                i,
-                h: b.count > 0 ? b.h / b.count : 0,
-                s: b.count > 0 ? b.s / b.count : 0,
-                count: b.count,
-                }))
-                .filter((b) => b.count >= 2)
-                .sort((a, b) => b.count - a.count);
-            if (retry.length === 0) { resolve(FALLBACK); return; }
-            const first = retry[0];
-            const bg1 = toDarkBg(first.h, Math.max(first.s, 0.4), l1, satBoost);
-            const bg2 = toDarkBg(
-                (first.h + 20) % 360,
-                Math.min(Math.max(first.s, 0.4) * 0.75, 0.55),
-                l2,
-                satBoost
-            );
-            resolve([bg1, bg2]);
-            return;
+           resolve(FALLBACK);
+           return;
         }
 
-        const first = ranked[0];
-        const second =
-          ranked.find((b) => {
-            const dist = Math.min(
-              Math.abs(b.i - first.i),
-              15 - Math.abs(b.i - first.i)
-            );
-            return dist >= 2;
-          }) ?? ranked[1] ?? first;
+        const l1 = Math.min(0.08 + brightness * 0.22, 0.12);   
+        const l2 = Math.min(0.24 + brightness * 0.22, 0.30);   
+        const l3 = Math.min(0.38 + brightness * 0.22, 0.45);
 
-        const bg1 = toDarkBg(first.h, first.s, l1, satBoost);
-        const bg2 = toDarkBg(
-          second.h,
-          Math.min(second.s * 0.75, 0.55),
-          l2,
-          satBoost
-        );
-        resolve([bg1, bg2]);
-      } catch (err) {
-        console.warn('extractPalette failed:', err);
+        let c1, c2, c3;
+
+        if (grayscale) {
+          // ✅ Usa los valores del usuario
+          const base = ranked[0];
+          c1 = toDarkBg(base.h, base.s, grayscaleDarkness[0], satBoost);
+          c2 = toDarkBg(base.h, base.s, grayscaleDarkness[1], satBoost);
+          c3 = toDarkBg(base.h, base.s, grayscaleDarkness[2], satBoost);
+        } else {
+          // Colores distintos: buscamos 3 tonos diferentes
+          const first = ranked[0];
+          const second = ranked.find((b) => {
+            const dist = Math.min(Math.abs(b.i - first.i), 15 - Math.abs(b.i - first.i));
+            return dist >= 2;
+          }) || first;
+          const third = ranked.find((b) => {
+            const dist1 = Math.min(Math.abs(b.i - first.i), 15 - Math.abs(b.i - first.i));
+            const dist2 = Math.min(Math.abs(b.i - second.i), 15 - Math.abs(b.i - second.i));
+            return dist1 >= 2 && dist2 >= 2;
+          }) || second;
+
+          c1 = toDarkBg(first.h, first.s, l1, satBoost);
+          c2 = toDarkBg(second.h, second.s * 0.75, l2, satBoost);
+          c3 = toDarkBg(third.h, third.s * 0.85, l3, satBoost);
+        }
+
+        resolve([c1, c2, c3]);
+      } catch {
         resolve(FALLBACK);
       }
     };

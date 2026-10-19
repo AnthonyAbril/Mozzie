@@ -1,8 +1,9 @@
 {
   "name": "mozzie",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "main": "electron/main.cjs",
   "license": "Unlicense",
+  "description": "Reproductor de vinilo interactivo con scratching y temas dinámicos",
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,magenta \"vite --port 5555\" \"wait-on http://localhost:5555 && electron .\"",
     "build": "vite build",
@@ -12,8 +13,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": {
-    "name": "Sv443",
-    "url": "https://github.com/Sv443"
+    "name": "Anthony Abril",
+    "email": "antabrrue@alu.edu.gva.es"
   },
   "browserslist": {
     "production": [

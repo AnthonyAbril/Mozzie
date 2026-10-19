@@ -1,6 +1,7 @@
 import { useRef, Suspense, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { useTexture } from '@react-three/drei';
+import { useTexture } from '@react-three/drei'; // 👈 Restaurado
+import { ErrorBoundary } from './ErrorBoundary'; // 👈 Añade esta línea
 import * as THREE from 'three';
 
 export function ResponsiveCamera({ baseFov = 45, baseAspect = 1.5 }: { baseFov?: number; baseAspect?: number }) {
@@ -50,19 +51,24 @@ const RESET_DURATION_MS = 400;
 const MIDDLE_DOUBLE_CLICK_MS = 350;
 const MIDDLE_DOUBLE_CLICK_MAX_DIST = 6;
 
-function LabelWithCover({ url }: { url: string }) {
+// Actualiza las interfaces:
+function LabelWithCover({ url, yPos, rotX }: { url: string; yPos: number; rotX: number }) {
   const texture = useTexture(url);
+  useEffect(() => {
+    return () => texture.dispose();
+  }, [texture]);
+
   return (
-    <mesh position={[0, 0.051, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+    <mesh position={[0, yPos, 0]} rotation={[rotX, 0, 0]}>
       <circleGeometry args={[1.5, 64]} />
       <meshBasicMaterial map={texture} toneMapped={false} />
     </mesh>
   );
 }
 
-function LabelPlaceholder() {
+function LabelPlaceholder({ yPos, rotX }: { yPos: number; rotX: number }) {
   return (
-    <mesh position={[0, 0.051, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+    <mesh position={[0, yPos, 0]} rotation={[rotX, 0, 0]}>
       <circleGeometry args={[1.5, 64]} />
       <meshStandardMaterial color="#ffffff" roughness={0.8} />
     </mesh>
@@ -355,11 +361,23 @@ export function ScratchableVinyl({
         <meshStandardMaterial color="#111111" roughness={0.4} metalness={0.2} />
       </mesh>
       {coverUrl ? (
-        <Suspense fallback={<LabelPlaceholder />}>
-          <LabelWithCover url={coverUrl} />
-        </Suspense>
+        <>
+          <ErrorBoundary fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
+            <Suspense fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
+              <LabelWithCover url={coverUrl} yPos={0.051} rotX={-Math.PI / 2} />
+            </Suspense>
+          </ErrorBoundary>
+          <ErrorBoundary fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
+            <Suspense fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
+              <LabelWithCover url={coverUrl} yPos={-0.051} rotX={Math.PI / 2} />
+            </Suspense>
+          </ErrorBoundary>
+        </>
       ) : (
-        <LabelPlaceholder />
+        <>
+          <LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />
+          <LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />
+        </>
       )}
       <mesh position={[0, 0.1, 0]}>
         <cylinderGeometry args={[0.08, 0.08, 0.2, 16]} />

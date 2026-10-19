@@ -12,21 +12,11 @@ interface Props {
   candidateGroups: CandidateGroup[];
   initialSelectedPaths: string[];
   onCancel: () => void;
-  onConfirm: (
-    name: string,
-    description: string,
-    selectedPaths: string[],
-  ) => void;
+  onConfirm: (name: string, description: string, selectedPaths: string[]) => void;
 }
 
 export function PlaylistModal({
-  open,
-  defaultName,
-  defaultDescription,
-  candidateGroups,
-  initialSelectedPaths,
-  onCancel,
-  onConfirm,
+  open, defaultName, defaultDescription, candidateGroups, initialSelectedPaths, onCancel, onConfirm,
 }: Props) {
   const [name, setName] = useState(defaultName);
   const [description, setDescription] = useState(defaultDescription);
@@ -34,7 +24,6 @@ export function PlaylistModal({
   const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    // Solo resetear cuando el modal pasa de cerrado a abierto
     if (open && !wasOpenRef.current) {
       setName(defaultName);
       setDescription(defaultDescription);
@@ -45,9 +34,7 @@ export function PlaylistModal({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onCancel]);
@@ -85,69 +72,40 @@ export function PlaylistModal({
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Nueva playlist</h2>
-          <button className="modal-close" onClick={onCancel} aria-label="Cerrar">
-            ✕
-          </button>
+          <button className="modal-close" onClick={onCancel} aria-label="Cerrar">✕</button>
         </div>
 
         <div className="modal-body">
           <div className="modal-section">
             <div className="modal-section-title">Nombre</div>
-            <input
-              type="text"
-              className="playlist-modal-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              placeholder="Mi playlist favorita"
-            />
+            <input type="text" className="playlist-modal-input" value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Mi playlist favorita" />
           </div>
 
           <div className="modal-section">
             <div className="modal-section-title">Descripción (opcional)</div>
-            <textarea
-              className="playlist-modal-textarea"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Para escuchar en el coche…"
-              rows={3}
-            />
+            <textarea className="playlist-modal-textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Para escuchar en el coche…" rows={3} />
           </div>
 
           <div className="modal-section">
-            <div className="modal-section-title">
-              Canciones seleccionadas ({selected.size})
-            </div>
+            <div className="modal-section-title">Canciones seleccionadas ({selected.size})</div>
             {candidateGroups.length === 0 ? (
               <div className="modal-hint">No hay canciones disponibles.</div>
             ) : (
               <div className="track-picker">
                 {candidateGroups.map((group, gi) => {
-                  const allSelected = group.tracks.every((t) =>
-                    selected.has(t.path),
-                  );
-                  const someSelected =
-                    !allSelected &&
-                    group.tracks.some((t) => selected.has(t.path));
+                  const allSelected = group.tracks.every((t) => selected.has(t.path));
+                  const someSelected = !allSelected && group.tracks.some((t) => selected.has(t.path));
                   return (
                     <div key={gi} className="track-picker-group">
                       <div className="track-picker-header">
-                        <button
-                          className="track-picker-toggle"
-                          onClick={() => toggleGroup(group)}
-                        >
-                          {allSelected ? "☑" : someSelected ? "▣" : "☐"}{" "}
-                          {group.label} ({group.tracks.length})
+                        <button className="track-picker-toggle" onClick={() => toggleGroup(group)}>
+                          {allSelected ? "☑" : someSelected ? "▣" : "☐"} {group.label} ({group.tracks.length})
                         </button>
                       </div>
                       <div className="track-picker-list">
                         {group.tracks.map((t) => (
                           <label key={t.path} className="track-picker-item">
-                            <input
-                              type="checkbox"
-                              checked={selected.has(t.path)}
-                              onChange={() => toggle(t.path)}
-                            />
+                            <input type="checkbox" checked={selected.has(t.path)} onChange={() => toggle(t.path)} />
                             <span title={t.path}>{t.name}</span>
                           </label>
                         ))}
@@ -160,14 +118,8 @@ export function PlaylistModal({
           </div>
 
           <div className="playlist-modal-actions">
-            <button className="modal-btn-secondary" onClick={onCancel}>
-              Cancelar
-            </button>
-            <button
-              className="modal-btn-primary"
-              onClick={submit}
-              disabled={!name.trim() || selected.size === 0}
-            >
+            <button className="modal-btn-secondary" onClick={onCancel}>Cancelar</button>
+            <button className="modal-btn-primary" onClick={submit} disabled={!name.trim() || selected.size === 0}>
               Crear ({selected.size})
             </button>
           </div>

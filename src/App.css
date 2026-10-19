@@ -66,6 +66,34 @@ body {
   margin: 0;
 }
 
+/* Fila "Seleccionar todo" (sólo en modo selección) */
+.select-all-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 12px;
+  color: var(--text-mid);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.select-all-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.select-all-row input[type="checkbox"] {
+  accent-color: var(--primary);
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .track-item {
   display: flex;
   align-items: center;
@@ -1115,6 +1143,26 @@ button, input, .track-item, #track-list {
   background: var(--bg-primary);
   flex-shrink: 0;
   -webkit-app-region: no-drag;
+  position: relative;  /* ← AÑADIR: ancla para la barra */
+  overflow: hidden;    /* ← AÑADIR: recorta el fill si se desborda */
+}
+
+.load-progress-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--primary);
+  opacity: 0.22;
+  transition: width 0.25s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar-view-header > .view-name,
+.sidebar-view-header > .view-inbox-btn {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar-view-header .view-name {
@@ -1289,6 +1337,19 @@ button, input, .track-item, #track-list {
   -webkit-app-region: no-drag;
 }
 
+.sidebar-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.sidebar-search-row .search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto; /* sobreescribe el width:100% del .search-input base */
+}
+
 .sidebar-search {
   display: flex;
   width: 100%;
@@ -1362,4 +1423,349 @@ button, input, .track-item, #track-list {
 
 .search-input:focus { 
   border-color: var(--primary); 
+}
+
+
+/* ===== Menús desplegables (Dropdowns) ===== */
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  margin: 0;
+  list-style: none; /* Quita las viñetas */
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Marca visual del filtro activo */
+.dropdown-menu li.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+.dropdown-menu li.active:hover {
+  color: white;  /* sobre el hover azul no se ve bien el primary */
+}
+
+/* Para el menú de filtros (que se alinea a la derecha) */
+.dropdown-menu.dropdown-right {
+  left: auto;
+  right: 0;
+}
+
+/* Estilo de cada opción del menú */
+.dropdown-menu li {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap; /* Evita que el texto se rompa en dos líneas */
+}
+
+.dropdown-menu li:hover {
+  background: var(--primary);
+  color: white;
+}
+
+/* Fondo invisible para detectar clics fuera y cerrar el menú */
+.dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+
+
+
+/* Botón de eliminar en modales (rojo) */
+.modal-btn-danger {
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: none;
+  background: #dc2626;
+  color: white;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.modal-btn-danger:hover {
+  background: #ef4444;
+}
+
+
+
+
+/* =========================================
+   REDISEÑO DEL PANEL DE PERSONALIZACIÓN
+   ========================================= */
+
+.modal-tall {
+  max-height: 90vh;
+}
+
+.customize-body {
+  gap: 32px;
+  padding: 24px 28px;
+}
+
+.customize-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.customize-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.customize-section-desc {
+  font-size: 12px;
+  color: var(--text-dimmer);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+/* Caja contenedora de opciones */
+.customize-box {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Sub-panel para opciones anidadas */
+.customize-sub-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fade-in 0.2s ease;
+}
+
+/* Filas de ajustes */
+.customize-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.customize-row .color-label {
+  font-size: 13px;
+  color: var(--text-mid);
+  flex-shrink: 0;
+}
+
+/* Selectores estilizados */
+.custom-select {
+  flex: 1;
+  max-width: 200px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23aaaaaa%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px top 50%;
+  background-size: 10px auto;
+  transition: border-color 0.15s ease;
+}
+.custom-select:focus, .custom-select:hover {
+  border-color: var(--primary);
+}
+
+/* Modificadores del toggle principal */
+.main-toggle {
+  align-items: flex-start;
+}
+.main-toggle input[type="checkbox"] {
+  margin-top: 4px;
+}
+.toggle-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.toggle-sublabel {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* Color input wrappers */
+.color-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.color-input-wrapper input[type="color"] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.color-input-wrapper input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.color-input-wrapper input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+.color-input-wrapper .color-code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 70px;
+  text-align: right;
+}
+
+/* Divisor sutil */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0;
+}
+
+/* Botones mini para dirección */
+.theme-mode-toggle.mini button {
+  padding: 6px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+
+
+
+/* =========================================
+   NUEVO SWITCH Y PREVISUALIZACIÓN DE CARÁTULA
+   ========================================= */
+
+/* Contenedor de la carátula en el panel derecho */
+.cover-preview-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: transform 0.2s ease;
+}
+.cover-preview-container:hover {
+  transform: scale(1.02);
+}
+.cover-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: filter 0.2s ease;
+}
+.cover-preview-container:hover .cover-preview-img {
+  filter: blur(3px) brightness(0.6); /* Efecto borroso al pasar el ratón */
+}
+.cover-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.cover-preview-container:hover .cover-preview-overlay {
+  opacity: 1;
+}
+.cover-preview-overlay span {
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px 16px;
+  border-radius: 20px;
+  backdrop-filter: blur(4px);
+}
+
+/* Switch de la chincheta (📌) */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border);
+  transition: .4s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--text-dim);
+  transition: .4s;
+}
+
+/* ✅ Selector más específico para evitar conflictos */
+.switch input:checked + .slider {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+.switch input:checked + .slider:before {
+  transform: translateX(16px);
+  background-color: white;
+}
+.switch input:disabled + .slider {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.slider.round {
+  border-radius: 20px;
+}
+.slider.round:before {
+  border-radius: 50%;
 }

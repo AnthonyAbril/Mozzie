@@ -1,6 +1,6 @@
 export interface StoredDiscTheme {
   mode: 'disc' | 'custom';
-  customColors: [string, string] | null;
+  customColors: [string, string, string] | null; // <--- Ahora acepta 3
 }
 
 export type PlayMode = 'single' | 'continuous' | 'loop';
@@ -12,9 +12,35 @@ export interface StoredGlobalTheme {
   discThemeMode: boolean;
   satBoost: number;
   brightness: number;
-  singlePlayback: boolean;    
-  playMode: PlayMode;         // ← nuevo
-  vinylSpinDirection: 1 | -1;   // ← NUEVO
+  singlePlayback: boolean;
+  playMode: PlayMode;
+  vinylSpinDirection: 1 | -1;
+  
+  // Propiedades del tema y gradiente
+  primarySource: 'color1' | 'color2' | 'auto1' | 'auto2' | 'auto3';
+  bgSource: 'color1' | 'color2' | 'auto1' | 'auto2' | 'auto3';
+  bgGradient: boolean;
+  reactiveLights: boolean;
+  
+  // NUEVOS:
+  gradientColorSource: 'color1' | 'color2' | 'auto1' | 'auto2' | 'auto3' | 'custom';
+  gradientColor2: string;
+  grayscalePalette: boolean;
+  grayscaleDarkness: [number, number, number]; // <--- NUEVO (valores de 0 a 1)
+
+  // Propiedades del Pin
+  pinnedSettings: boolean;
+  pinnedPreset: {
+    rpm: number;
+    eq: { low: number; mid: number; high: number };
+    pan: number;
+    reverb: number;
+    volume: number; // <--- AÑADIR ESTO
+  } | null;
+  
+  lightSmoothing: number; // 0.01 (rápido/rápido) a 0.2 (muy suave)
+  blockSleep: boolean;    // Evitar que la pantalla se apague
+  enableF11Fullscreen: boolean; // Atajo F11
 }
 
 export const DEFAULT_GLOBAL_THEME: StoredGlobalTheme = {
@@ -27,6 +53,21 @@ export const DEFAULT_GLOBAL_THEME: StoredGlobalTheme = {
   singlePlayback: false,      // ← por defecto, multi-play (como ahora)
   playMode: 'single',         // ← por defecto: se queda esperando
   vinylSpinDirection: -1,       // ← por defecto antihorario (más realista)
+  // Defaults de los nuevos campos
+  
+  primarySource: 'auto1',
+  bgSource: 'auto2',
+  bgGradient: false,
+  reactiveLights: true,
+  gradientColorSource: 'auto2',
+  gradientColor2: '#15151b',
+  grayscalePalette: false,
+  grayscaleDarkness: [0.12, 0.3, 0.45], // <--- Oscuro, Medio, Claro
+  pinnedSettings: false,
+  pinnedPreset: null,
+  lightSmoothing: 0.05,
+  blockSleep: true,
+  enableF11Fullscreen: true,
 };
 
 const DISCS_KEY = 'mozzie:discThemes';
