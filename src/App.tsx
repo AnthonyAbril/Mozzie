@@ -243,6 +243,8 @@ function App() {
   const dontAskDeleteRef = useRef(false);
   const prePinSettingsRef = useRef<any>(null);
 
+  const prevTrackIdRef = useRef<string | null>(null);
+
   const [loadProgress, setLoadProgress] = useState<{
     loaded: number;
     total: number;
@@ -310,23 +312,20 @@ function App() {
     endScratch,
     getAnalyserVolume,
     setTrackAvailableCovers,
-  } = useAudioEngine({
+    } = useAudioEngine({
     onTrackEnd: (id) => {
       const s = stateRef.current;
       if (!s) return;
       const mode = s.playMode as "single" | "continuous" | "loop";
 
       if (mode === "loop") {
-        playTrackRef.current?.(id);
+        setTimeout(() => playTrackRef.current?.(id), 0);
         return;
       }
 
       if (mode === "continuous") {
-        // ✅ Usar el contexto de reproducción (la lista filtrada)
-        const list =
-          s.playbackContext && s.playbackContext.length > 0
-            ? s.playbackContext
-            : s.tracks.map((t: any) => t.id);
+        // Usar el contexto o la lista actual de canciones
+        const list = s.playbackContext.length > 0 ? s.playbackContext : s.tracks.map((t) => t.id);
 
         const idx = list.indexOf(id);
         if (idx < 0 || list.length === 0) return;
@@ -337,13 +336,16 @@ function App() {
         setSelectedTrackId(nextTrackId);
 
         if (s.singlePlayback) {
-          s.tracks.forEach((t: any) => {
+          s.tracks.forEach((t) => {
             if (t.id !== nextTrackId && t.isPlaying) {
               pauseTrackRef.current?.(t.id);
             }
           });
         }
-        playTrackRef.current?.(nextTrackId);
+        
+        setTimeout(() => {
+          playTrackRef.current?.(nextTrackId);
+        }, 0);
         return;
       }
     },
@@ -367,7 +369,8 @@ function App() {
     selectedTrack,
     singlePlayback: globalTheme.singlePlayback,
     playMode: globalTheme.playMode,
-    playbackContext, // <--- AÑADIR ESTO
+    playbackContext, 
+    isLoading: isLoadingPlaylist || loadProgress !== null, // ✅ NUEVO
   };
 
   // ✅ LÓGICA LIMPIA Y CORREGIDA
@@ -661,6 +664,14 @@ function App() {
     saveLibrary(entries);
   }, [librarySignature]);
 
+  // ✅ Sincroniza el contexto de reproducción a medida que se cargan nuevas canciones
+  // (solo si el usuario no ha aplicado un filtro de búsqueda manual)
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setPlaybackContext(tracks.map((t) => t.id));
+    }
+  }, [tracks, searchQuery]);
+
   const playExclusive = useCallback(
     (id: string) => {
       if (globalTheme.singlePlayback) {
@@ -697,17 +708,17 @@ function App() {
         existingByName.set(t.name, t);
       }
 
-      const addedIds: string[] = [];
+      const addedIds: (string | null)[] = new Array(paths.length).fill(null);
       const addedNamesInBatch = new Map<string, string>();
+      let loadedCount = 0;
 
-      for (let i = 0; i < paths.length; i++) {
-        const p = paths[i];
+      const processPath = async (p: string, index: number) => {
         try {
           const res = await window.mozzie.readFile(p);
-          if (!res.ok) continue;
+          if (!res.ok) return;
           if (res.data.byteLength > 100 * 1024 * 1024) {
             console.warn(`Omitiendo archivo >100MB: ${p}`);
-            continue;
+            return;
           }
           const name = p.split(/[\\/]/).pop() ?? p;
           const hash = await hashArrayBuffer(res.data);
@@ -716,9 +727,7 @@ function App() {
           if (mode === "reopen") {
             const existing = existingByPath.get(p);
             if (existing) {
-              if (existing.contentHash && existing.contentHash === hash) {
-                continue;
-              }
+              if (existing.contentHash && existing.contentHash === hash) return;
               toRemove = existing;
             }
           } else {
@@ -735,37 +744,45 @@ function App() {
           const priorInBatch = addedNamesInBatch.get(name);
           if (priorInBatch) {
             removeTrack(priorInBatch);
-            const idx = addedIds.indexOf(priorInBatch);
-            if (idx >= 0) addedIds.splice(idx, 1);
           }
 
-          const id = await addTrackFromArrayBuffer(
-            name,
-            p,
-            res.data,
-            null,
-            p,
-            hash,
-          );
-          addedIds.push(id);
+          const id = await addTrackFromArrayBuffer(name, p, res.data, null, p, hash);
+          addedIds[index] = id;
           addedNamesInBatch.set(name, id);
         } catch (err) {
-          console.warn("Error:", err);
+          console.warn("Error procesando archivo:", err);
         } finally {
-          setLoadProgress({ loaded: i + 1, total: paths.length });
+          loadedCount++;
+          setLoadProgress({ loaded: loadedCount, total: paths.length });
         }
-      }
+      };
+
+      // ✅ PROCESAMIENTO CONCURRENTE: Leemos 3 archivos a la vez
+      const queue = paths.map((p, i) => ({ p, i }));
+      const CONCURRENCY_LIMIT = 3;
+      const workers = Array(Math.min(CONCURRENCY_LIMIT, paths.length))
+        .fill(null)
+        .map(async () => {
+          while (queue.length > 0) {
+            const task = queue.shift();
+            if (task) await processPath(task.p, task.i);
+          }
+        });
+
+      await Promise.all(workers);
 
       loadProgressTimerRef.current = window.setTimeout(() => {
         setLoadProgress(null);
         loadProgressTimerRef.current = null;
       }, 600);
 
-      if (autoPlayFirst && addedIds[0]) {
-        setSelectedTrackId(addedIds[0]);
-        playExclusive(addedIds[0]);
+      const validIds = addedIds.filter((id): id is string => id !== null);
+
+      if (autoPlayFirst && validIds[0]) {
+        setSelectedTrackId(validIds[0]);
+        playExclusive(validIds[0]);
       }
-      return addedIds;
+      return validIds;
     },
     [addTrackFromArrayBuffer, removeTrack, playExclusive],
   );
@@ -997,6 +1014,43 @@ function App() {
     setTrackVolume,
   ]);
 
+    // Sincronizar los cambios manuales (sliders) con el preset fijado
+    // Sincronizar los cambios manuales (sliders) con el preset fijado
+  useEffect(() => {
+    if (
+      globalTheme.pinnedSettings &&
+      selectedTrack &&
+      prevTrackIdRef.current === selectedTrack.id
+    ) {
+      // Usamos un temporizador para no saturar el localStorage mientras se arrastra el slider
+      const timer = setTimeout(() => {
+        setGlobalTheme({
+          pinnedPreset: {
+            rpm: selectedTrack.baseRate,
+            eq: { ...selectedTrack.eq },
+            pan: selectedTrack.pan,
+            reverb: selectedTrack.reverb,
+            volume: selectedTrack.volume,
+          },
+        });
+      }, 300); // Espera 300ms después de que el usuario suelte el slider
+
+      return () => clearTimeout(timer);
+    }
+    prevTrackIdRef.current = selectedTrack?.id ?? null;
+  }, [
+    selectedTrack?.id,
+    selectedTrack?.baseRate,
+    selectedTrack?.eq.low,
+    selectedTrack?.eq.mid,
+    selectedTrack?.eq.high,
+    selectedTrack?.pan,
+    selectedTrack?.reverb,
+    selectedTrack?.volume,
+    globalTheme.pinnedSettings,
+    setGlobalTheme,
+  ]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "F11" && globalTheme.enableF11Fullscreen) {
@@ -1088,6 +1142,8 @@ function App() {
 
   const handleSwipe = useCallback(
     (direction: "left" | "right") => {
+      // ✅ NUEVO: Ignorar swipe mientras el programa está cargando
+      if (stateRef.current?.isLoading) return;
       if (!selectedTrackId || tracks.length === 0) return;
       const context =
         playbackContext.length > 0 ? playbackContext : tracks.map((t) => t.id);

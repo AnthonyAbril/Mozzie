@@ -188,6 +188,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
       ctx: AudioContext,
     ) => {
       source.onended = () => {
+        // Si el bucle de seguridad ya lo limpió, no hacemos nada
         if (internal.source !== source) return;
 
         if (internal.isScratching) {
@@ -204,6 +205,11 @@ export function useAudioEngine(options: EngineOptions = {}) {
         internal.positionAtLastUpdate = 0;
         internal.ctxTimeAtLastUpdate = ctx.currentTime;
         patchTrack(id, { isPlaying: false, currentTime: 0 });
+        
+        // ✅ Retraso milimétrico para asegurar que React actualiza la UI
+        setTimeout(() => {
+          onTrackEndRef.current?.(id);
+        }, 0);
       };
     },
     [patchTrack],
@@ -377,10 +383,21 @@ export function useAudioEngine(options: EngineOptions = {}) {
     (id: string) => {
       const ctx = getCtx();
       const internal = internalsRef.current.get(id);
-      if (!internal || internal.source) return;
-      if (ctx.state === "suspended") ctx.resume();
+      
+      if (!internal) {
+        console.warn(`No se puede reproducir la pista ${id}: aún no está cargada.`);
+        return;
+      }
 
-      if (internal.direction === 1 && internal.positionAtLastUpdate >= internal.buffer.duration - END_MARGIN) {
+      // ✅ FORZAR LIMPIEZA: Si ya había un source colgado, lo destruimos
+      if (internal.source) {
+        internal.source.onended = null;
+        try { internal.source.stop(); } catch {}
+        internal.source.disconnect();
+        internal.source = null;
+      }
+
+      if (internal.positionAtLastUpdate >= internal.buffer.duration - END_MARGIN) {
         internal.positionAtLastUpdate = 0;
         internal.ctxTimeAtLastUpdate = ctx.currentTime;
         patchTrack(id, { currentTime: 0 });
@@ -391,11 +408,19 @@ export function useAudioEngine(options: EngineOptions = {}) {
       }
 
       internal.currentRate = internal.direction * Math.abs(internal.baseRate);
-      const source = startSourceAt(internal, ctx, internal.positionAtLastUpdate, internal.direction === -1);
-      if (!source) return;
 
-      attachOnended(source, internal, id, ctx);
-      patchTrack(id, { isPlaying: true });
+      const startPlayback = () => {
+        const source = startSourceAt(internal, ctx, internal.positionAtLastUpdate, internal.direction === -1);
+        if (!source) return;
+        attachOnended(source, internal, id, ctx);
+        patchTrack(id, { isPlaying: true });
+      };
+
+      if (ctx.state === "suspended") {
+        ctx.resume().then(startPlayback).catch(console.warn);
+      } else {
+        startPlayback();
+      }
     },
     [getCtx, startSourceAt, attachOnended, patchTrack],
   );
@@ -713,14 +738,19 @@ export function useAudioEngine(options: EngineOptions = {}) {
             const pos = getPosition(internal, ctx);
             const dur = t.duration;
 
+            // ✅ RED DE SEGURIDAD: Si la posición llega al final, forzamos la limpieza
             if (!internal.isScratching && pos >= dur - END_MARGIN) {
               freezePosition(internal, ctx);
-              internal.source.onended = null;
+              
+              // Anulamos el evento nativo para evitar doble ejecución
+              internal.source.onended = null; 
               try { internal.source.stop(); } catch {}
               internal.source.disconnect();
               internal.source = null;
+              
               internal.positionAtLastUpdate = 0;
               internal.ctxTimeAtLastUpdate = ctx.currentTime;
+              
               changed = true;
               endedTracks.push(t.id);
               return { ...t, isPlaying: false, currentTime: 0 };
@@ -767,8 +797,13 @@ export function useAudioEngine(options: EngineOptions = {}) {
           return changed ? next : prev;
         });
 
-        for (const id of endedTracks) {
-          onTrackEndRef.current?.(id);
+        // Notificar a React fuera del ciclo de renderizado
+        if (endedTracks.length > 0) {
+          setTimeout(() => {
+            for (const id of endedTracks) {
+              onTrackEndRef.current?.(id);
+            }
+          }, 0);
         }
       }
       rafId = requestAnimationFrame(tick);
