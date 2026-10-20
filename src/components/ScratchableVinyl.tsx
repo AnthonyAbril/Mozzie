@@ -5,7 +5,7 @@ import { ErrorBoundary } from './ErrorBoundary'; // 👈 Añade esta línea
 import * as THREE from 'three';
 
 // ✅ NUEVO: Precargamos el modelo para que no haya parpadeos
-useGLTF.preload('/models/vinilo.glb');  
+useGLTF.preload('./models/vinilo.glb');  
 
 export function ResponsiveCamera({ baseFov = 45, baseAspect = 1.5 }: { baseFov?: number; baseAspect?: number }) {
   const { camera, size } = useThree();
@@ -55,16 +55,26 @@ const MIDDLE_DOUBLE_CLICK_MS = 350;
 const MIDDLE_DOUBLE_CLICK_MAX_DIST = 6;
 
 function VinylModel() {
-  const { scene } = useGLTF('/models/vinilo.glb');
-  
-  // Clonamos la escena por si en el futuro hay múltiples vinilos
+  const { scene } = useGLTF('./models/vinilo.glb');
   const clonedScene = useMemo(() => scene.clone(), [scene]);
 
-  // Si necesitas escalar el modelo porque en Blender es muy grande o pequeño:
-  // return <primitive object={clonedScene} scale={[1.5, 1.5, 1.5]} />;
-  
-  // ✅ Añadimos scale={25} para igualar el tamaño original (0.2 * 25 = 5)
-  return <primitive object={clonedScene} scale={29} />;
+  // ✅ Limpieza profunda de la GPU al desmontar
+  useEffect(() => {
+    return () => {
+      clonedScene.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
+    };
+  }, [clonedScene]);
+
+  return <primitive object={clonedScene} scale={25} />;
 }
 
 // Actualiza las interfaces:

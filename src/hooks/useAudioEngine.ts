@@ -32,7 +32,9 @@ export interface Track {
 }
 
 interface TrackInternal {
-  buffer: AudioBuffer;
+  buffer: AudioBuffer | null; // ✅ Ahora puede ser null si se ha purgado
+  rawArrayBuffer: ArrayBuffer | null; // ✅ Ahora puede ser null
+  sourcePath: string | null; // ✅ AÑADIR ESTO
   reversedBuffer: AudioBuffer | null;
   source: AudioBufferSourceNode | null;
   sourceIsReversed: boolean;
@@ -225,7 +227,10 @@ export function useAudioEngine(options: EngineOptions = {}) {
       contentHash: string = "",
     ): Promise<string> => {
       const ctx = getCtx();
-      const buffer = await ctx.decodeAudioData(arrayBuffer);
+
+      // ✅ NUEVO: Decodificamos temporalmente solo para obtener la duración
+      const tempBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+      const duration = tempBuffer.duration;
 
       const gain = ctx.createGain();
       gain.gain.value = 0.8;
@@ -274,7 +279,9 @@ export function useAudioEngine(options: EngineOptions = {}) {
       const file = new File([arrayBuffer], name, { type: "audio/mpeg" });
 
       internalsRef.current.set(id, {
-        buffer,
+        buffer: null, // ✅ No guardamos el audio decodificado
+        rawArrayBuffer: sourcePath ? null : arrayBuffer, // ✅ Si viene de disco, no lo guardamos en RAM
+        sourcePath, // ✅ Añade esto para que playTrack sepa de dónde leer
         reversedBuffer: null,
         source: null,
         sourceIsReversed: false,
@@ -330,6 +337,33 @@ export function useAudioEngine(options: EngineOptions = {}) {
     [patchTrack]
   );
 
+    // ✅ NUEVA FUNCIÓN: Libera memoria de las pistas que no estén sonando
+  const purgeOldBuffers = useCallback((keepId: string) => {
+    let decodedCount = 0;
+    const idsToPurge: string[] = [];
+
+    internalsRef.current.forEach((internal, id) => {
+      if (internal.buffer) {
+        decodedCount++;
+        if (id !== keepId) idsToPurge.push(id);
+      }
+    });
+
+    if (decodedCount > 3) {
+      const purgeTarget = decodedCount - 3;
+      for (let i = 0; i < purgeTarget; i++) {
+        if (idsToPurge[i]) {
+          const internal = internalsRef.current.get(idsToPurge[i]);
+          if (internal) {
+            internal.buffer = null; 
+            internal.reversedBuffer = null;
+            internal.rawArrayBuffer = null; // ✅ Liberamos también el MP3 crudo
+          }
+        }
+      }
+    }
+  }, []);
+
   // ─── VOLUMEN DEL ANALIZADOR ───
   const getAnalyserVolume = useCallback(() => {
     if (!analyserRef.current) return 0;
@@ -380,14 +414,36 @@ export function useAudioEngine(options: EngineOptions = {}) {
   }, []);
 
   const playTrack = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const ctx = getCtx();
       const internal = internalsRef.current.get(id);
       
-      if (!internal) {
-        console.warn(`No se puede reproducir la pista ${id}: aún no está cargada.`);
-        return;
+      if (!internal) return;
+
+            // ✅ 1. Si el buffer fue purgado, lo decodificamos de nuevo
+      if (!internal.buffer) {
+        try {
+          // Si también purgamos el arrayBuffer, lo leemos del disco
+          if (!internal.rawArrayBuffer) {
+            // ✅ CORREGIDO: Usamos internal.sourcePath en lugar del estado tracks
+            if (internal.sourcePath && window.mozzie) {
+              const res = await window.mozzie.readFile(internal.sourcePath);
+              if (res.ok) internal.rawArrayBuffer = res.data;
+            }
+          }
+
+          if (!internal.rawArrayBuffer) throw new Error("No hay archivo disponible");
+
+          // Re-decodificamos el archivo original
+          internal.buffer = await ctx.decodeAudioData(internal.rawArrayBuffer.slice(0)); 
+        } catch (err) {
+          console.error("Error re-decodificando audio:", err);
+          return;
+        }
       }
+
+      // ✅ 2. Purgamos la RAM de las canciones viejas
+      purgeOldBuffers(id);
 
       // ✅ FORZAR LIMPIEZA: Si ya había un source colgado, lo destruimos
       if (internal.source) {
