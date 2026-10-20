@@ -1,8 +1,11 @@
-import { useRef, Suspense, useEffect } from 'react';
+import { useRef, Suspense, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { useTexture } from '@react-three/drei'; // 👈 Restaurado
+import { useTexture, useGLTF } from '@react-three/drei'; // 👈 Añadido useGLTF
 import { ErrorBoundary } from './ErrorBoundary'; // 👈 Añade esta línea
 import * as THREE from 'three';
+
+// ✅ NUEVO: Precargamos el modelo para que no haya parpadeos
+useGLTF.preload('/models/vinilo.glb');  
 
 export function ResponsiveCamera({ baseFov = 45, baseAspect = 1.5 }: { baseFov?: number; baseAspect?: number }) {
   const { camera, size } = useThree();
@@ -51,6 +54,19 @@ const RESET_DURATION_MS = 400;
 const MIDDLE_DOUBLE_CLICK_MS = 350;
 const MIDDLE_DOUBLE_CLICK_MAX_DIST = 6;
 
+function VinylModel() {
+  const { scene } = useGLTF('/models/vinilo.glb');
+  
+  // Clonamos la escena por si en el futuro hay múltiples vinilos
+  const clonedScene = useMemo(() => scene.clone(), [scene]);
+
+  // Si necesitas escalar el modelo porque en Blender es muy grande o pequeño:
+  // return <primitive object={clonedScene} scale={[1.5, 1.5, 1.5]} />;
+  
+  // ✅ Añadimos scale={25} para igualar el tamaño original (0.2 * 25 = 5)
+  return <primitive object={clonedScene} scale={29} />;
+}
+
 // Actualiza las interfaces:
 function LabelWithCover({ url, yPos, rotX }: { url: string; yPos: number; rotX: number }) {
   const texture = useTexture(url);
@@ -76,8 +92,8 @@ export function ScratchableVinyl({
   isPlaying,
   coverUrl,
   baseRate,
-  direction,      // ← NUEVO
-  spinDirection,   // ← NUEVO
+  direction,
+  spinDirection,
   onScratchStart,
   onScratchRate,
   onScratchEnd,
@@ -200,7 +216,7 @@ export function ScratchableVinyl({
       const distance = camera.position.length();
       const worldHeight =
         2 * Math.tan(((persp.fov || 45) * Math.PI) / 180 / 2) * distance;
-      return worldHeight / canvas.clientHeight;
+      return worldHeight /  canvas.clientHeight;
     };
 
     const onDown = (e: PointerEvent) => {
@@ -353,20 +369,36 @@ export function ScratchableVinyl({
 
   return (
     <group ref={groupRef}>
-      <mesh ref={discRef}>
-        <cylinderGeometry args={[5, 5, 0.1, 64]} />
-        <meshStandardMaterial color="#111111" roughness={0.4} metalness={0.2} />
+      
+      {/* 1. El modelo 3D de Blender */}
+      <ErrorBoundary fallback={null}>
+        <Suspense fallback={
+          <mesh>
+            <cylinderGeometry args={[5, 5, 0.1, 64]} />
+            <meshStandardMaterial color="#111111" roughness={0.4} metalness={0.2} />
+          </mesh>
+        }>
+          <VinylModel />
+        </Suspense>
+      </ErrorBoundary>
+
+      {/* 2. Hitbox invisible para el Raycasting (Scratching) */}
+      {/* Mantiene la interacción sin procesar los miles de polígonos del modelo de Blender */}
+      <mesh ref={discRef} visible={false}>
+        <cylinderGeometry args={[5, 5, 0.2, 32]} />
       </mesh>
+
+      {/* 3. Carátulas (Ajusta yPos si tu modelo de Blender tiene otro grosor) */}
       {coverUrl ? (
         <>
           <ErrorBoundary key={`top-${coverUrl}`} fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
             <Suspense fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
-              <LabelWithCover url={coverUrl} yPos={0.051} rotX={-Math.PI / 2} />
+              <LabelWithCover url={coverUrl} yPos={0.026} rotX={-Math.PI / 2} />
             </Suspense>
           </ErrorBoundary>
           <ErrorBoundary key={`bot-${coverUrl}`} fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
             <Suspense fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
-              <LabelWithCover url={coverUrl} yPos={-0.051} rotX={Math.PI / 2} />
+              <LabelWithCover url={coverUrl} yPos={-0.026} rotX={Math.PI / 2} />
             </Suspense>
           </ErrorBoundary>
         </>
@@ -376,6 +408,8 @@ export function ScratchableVinyl({
           <LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />
         </>
       )}
+
+      {/* 4. Eje central (Ajusta la altura si es necesario) */}
       <mesh position={[0, 0.1, 0]}>
         <cylinderGeometry args={[0.08, 0.08, 0.2, 16]} />
         <meshStandardMaterial color="#cccccc" metalness={0.9} roughness={0.1} />
