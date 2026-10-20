@@ -312,7 +312,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
           coverUrl,
           availableCovers: [],
           contentHash,
-          duration: buffer.duration,
+          duration: duration,
           currentTime: 0,
           isPlaying: false,
           volume: 0.8,
