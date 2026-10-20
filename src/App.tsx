@@ -771,12 +771,24 @@ function App() {
 
       await Promise.all(workers);
 
+      // y luego los reordenamos para que coincidan con el orden de `paths`.
+      const validIds = addedIds.filter((id): id is string => id !== null);
+      
+      setTimeout(() => {
+        const currentTracks = stateRef.current?.tracks || [];
+        const currentIds = currentTracks.map(t => t.id);
+        
+        // Filtramos los que ya existen para no duplicar
+        const otherIds = currentIds.filter(id => !validIds.includes(id));
+        
+        // Reordenamos: los antiguos primero (si los hay) y luego los nuevos en su orden original
+        reorderTracks([...otherIds, ...validIds]);
+      }, 100);
+
       loadProgressTimerRef.current = window.setTimeout(() => {
         setLoadProgress(null);
         loadProgressTimerRef.current = null;
       }, 600);
-
-      const validIds = addedIds.filter((id): id is string => id !== null);
 
       if (autoPlayFirst && validIds[0]) {
         setSelectedTrackId(validIds[0]);

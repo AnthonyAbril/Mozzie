@@ -724,7 +724,18 @@ export function useAudioEngine(options: EngineOptions = {}) {
 
   useEffect(() => {
     let rafId: number;
-    const tick = () => {
+    let lastUpdate = 0;
+
+    const tick = (time: number) => {
+      // ✅ OPTIMIZACIÓN: Solo actualizamos la UI cada 100ms (10 veces por segundo)
+      // en lugar de 60 veces por segundo. El oído humano no nota la diferencia,
+      // pero la CPU baja drásticamente.
+      if (time - lastUpdate < 100) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      lastUpdate = time;
+
       const ctx = ctxRef.current;
       if (ctx) {
         const endedTracks: string[] = [];
@@ -738,11 +749,9 @@ export function useAudioEngine(options: EngineOptions = {}) {
             const pos = getPosition(internal, ctx);
             const dur = t.duration;
 
-            // ✅ RED DE SEGURIDAD: Si la posición llega al final, forzamos la limpieza
             if (!internal.isScratching && pos >= dur - END_MARGIN) {
               freezePosition(internal, ctx);
               
-              // Anulamos el evento nativo para evitar doble ejecución
               internal.source.onended = null; 
               try { internal.source.stop(); } catch {}
               internal.source.disconnect();
@@ -788,7 +797,7 @@ export function useAudioEngine(options: EngineOptions = {}) {
             }
 
             const newPos = Math.max(0, Math.min(pos, dur));
-            if (Math.abs(newPos - t.currentTime) > 0.05) {
+            if (Math.abs(newPos - t.currentTime) > 0.1) { // Actualizamos cada 0.1s
               changed = true;
               return { ...t, currentTime: newPos };
             }

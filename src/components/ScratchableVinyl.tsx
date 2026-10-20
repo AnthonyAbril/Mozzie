@@ -54,9 +54,6 @@ const MIDDLE_DOUBLE_CLICK_MAX_DIST = 6;
 // Actualiza las interfaces:
 function LabelWithCover({ url, yPos, rotX }: { url: string; yPos: number; rotX: number }) {
   const texture = useTexture(url);
-  useEffect(() => {
-    return () => texture.dispose();
-  }, [texture]);
 
   return (
     <mesh position={[0, yPos, 0]} rotation={[rotX, 0, 0]}>
@@ -362,12 +359,12 @@ export function ScratchableVinyl({
       </mesh>
       {coverUrl ? (
         <>
-          <ErrorBoundary fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
+          <ErrorBoundary key={`top-${coverUrl}`} fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
             <Suspense fallback={<LabelPlaceholder yPos={0.051} rotX={-Math.PI / 2} />}>
               <LabelWithCover url={coverUrl} yPos={0.051} rotX={-Math.PI / 2} />
             </Suspense>
           </ErrorBoundary>
-          <ErrorBoundary fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
+          <ErrorBoundary key={`bot-${coverUrl}`} fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
             <Suspense fallback={<LabelPlaceholder yPos={-0.051} rotX={Math.PI / 2} />}>
               <LabelWithCover url={coverUrl} yPos={-0.051} rotX={Math.PI / 2} />
             </Suspense>
