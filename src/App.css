@@ -1769,3 +1769,20 @@ button, input, .track-item, #track-list {
 .slider.round:before {
   border-radius: 50%;
 }
+
+
+
+
+.spinner-mini {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin-mini 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin-mini {
+  to { transform: rotate(360deg); }
+}

@@ -312,6 +312,7 @@ function App() {
     endScratch,
     getAnalyserVolume,
     setTrackAvailableCovers,
+    loadingTrackId 
     } = useAudioEngine({
     onTrackEnd: (id) => {
       const s = stateRef.current;
@@ -351,10 +352,13 @@ function App() {
     },
   });
 
+  
   playTrackRef.current = playTrack;
   pauseTrackRef.current = pauseTrack;
 
   const selectedTrack = tracks.find((t) => t.id === selectedTrackId) ?? null;
+
+  const isCurrentTrackLoading = selectedTrack?.id === loadingTrackId;
 
   const rpm = (selectedTrack?.baseRate ?? 1) * RPM_BASE;
   const eqLow = selectedTrack?.eq.low ?? 0;
@@ -1699,6 +1703,7 @@ function App() {
                     color={animatedTheme.primary}
                   />
                   <ScratchableVinyl
+                    isLoading={isCurrentTrackLoading}
                     isPlaying={selectedTrack?.isPlaying ?? false}
                     coverUrl={selectedTrack?.coverUrl ?? DEFAULT_COVER}
                     baseRate={selectedTrack?.baseRate ?? 1}
@@ -1795,6 +1800,7 @@ function App() {
                     color={animatedTheme.primary}
                   />
                   <ScratchableVinyl
+                    isLoading={isCurrentTrackLoading}
                     isPlaying={selectedTrack?.isPlaying ?? false}
                     coverUrl={selectedTrack?.coverUrl ?? DEFAULT_COVER}
                     baseRate={selectedTrack?.baseRate ?? 1}
@@ -1827,10 +1833,14 @@ function App() {
               <footer id="controls">
                 <button
                   id="play-pause"
-                  disabled={!selectedTrack}
+                  disabled={!selectedTrack || isCurrentTrackLoading}
                   onClick={() => selectedTrack && toggleTrack(selectedTrack.id)}
                 >
-                  {selectedTrack?.isPlaying ? "⏸" : "▶"}
+                  {isCurrentTrackLoading ? (
+                    <div className="spinner-mini" />
+                  ) : (
+                    selectedTrack?.isPlaying ? "⏸" : "▶"
+                  )}
                 </button>
                 <button
                   id="playmode-btn"

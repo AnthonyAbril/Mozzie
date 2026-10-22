@@ -74,6 +74,9 @@ export function useAudioEngine(options: EngineOptions = {}) {
   const onTrackEndRef = useRef(options.onTrackEnd);
   onTrackEndRef.current = options.onTrackEnd;
 
+  const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
+  const playRequestIdRef = useRef(0);
+
   const ctxRef = useRef<AudioContext | null>(null);
   const internalsRef = useRef<Map<string, TrackInternal>>(new Map());
   const baseRateAnimationsRef = useRef<Map<string, number>>(new Map());
@@ -415,37 +418,45 @@ export function useAudioEngine(options: EngineOptions = {}) {
 
   const playTrack = useCallback(
     async (id: string) => {
+      const requestId = ++playRequestIdRef.current; // ✅ Generamos un token único
+      
       const ctx = getCtx();
       const internal = internalsRef.current.get(id);
-      
       if (!internal) return;
 
-            // ✅ 1. Si el buffer fue purgado, lo decodificamos de nuevo
       if (!internal.buffer) {
+        setLoadingTrackId(id); // ✅ Mostrar spinner
         try {
-          // Si también purgamos el arrayBuffer, lo leemos del disco
-          if (!internal.rawArrayBuffer) {
-            // ✅ CORREGIDO: Usamos internal.sourcePath en lugar del estado tracks
-            if (internal.sourcePath && window.mozzie) {
-              const res = await window.mozzie.readFile(internal.sourcePath);
-              if (res.ok) internal.rawArrayBuffer = res.data;
-            }
+          if (!internal.rawArrayBuffer && internal.sourcePath && window.mozzie) {
+            const res = await window.mozzie.readFile(internal.sourcePath);
+            if (res.ok) internal.rawArrayBuffer = res.data;
           }
 
           if (!internal.rawArrayBuffer) throw new Error("No hay archivo disponible");
 
-          // Re-decodificamos el archivo original
-          internal.buffer = await ctx.decodeAudioData(internal.rawArrayBuffer.slice(0)); 
+          // Decodificamos
+          const tempBuffer = await ctx.decodeAudioData(internal.rawArrayBuffer.slice(0)); 
+          
+          // ✅ Si mientras cargaba el usuario hizo swipe, abortamos esto
+          if (playRequestIdRef.current !== requestId) {
+            setLoadingTrackId(null);
+            return; 
+          }
+          
+          internal.buffer = tempBuffer;
         } catch (err) {
           console.error("Error re-decodificando audio:", err);
+          if (playRequestIdRef.current === requestId) setLoadingTrackId(null);
           return;
         }
       }
 
-      // ✅ 2. Purgamos la RAM de las canciones viejas
+      // ✅ Si llegados a este punto el token sigue siendo válido, reproducimos
+      if (playRequestIdRef.current !== requestId) return;
+
+      setLoadingTrackId(null); // Quitar spinner
       purgeOldBuffers(id);
 
-      // ✅ FORZAR LIMPIEZA: Si ya había un source colgado, lo destruimos
       if (internal.source) {
         internal.source.onended = null;
         try { internal.source.stop(); } catch {}

@@ -32,6 +32,7 @@ export function ResponsiveCamera({ baseFov = 45, baseAspect = 1.5 }: { baseFov?:
 }
 
 interface Props {
+  isLoading?: boolean;
   isPlaying: boolean;
   coverUrl: string | null;
   baseRate: number;
@@ -81,10 +82,32 @@ function VinylModel() {
 function LabelWithCover({ url, yPos, rotX }: { url: string; yPos: number; rotX: number }) {
   const texture = useTexture(url);
 
+  // ✅ AJUSTE PARA QUE LA IMAGEN NO SE DEFORME
+  useEffect(() => {
+    if (!texture || !texture.image) return;
+    const img = texture.image;
+    const aspect = img.width / img.height;
+
+    if (aspect > 1) {
+      // Es rectangular horizontal
+      texture.repeat.set(1 / aspect, 1);
+      texture.offset.set((1 - 1 / aspect) / 2, 0);
+    } else if (aspect < 1) {
+      // Es rectangular vertical
+      texture.repeat.set(1, aspect);
+      texture.offset.set(0, (1 - aspect) / 2);
+    } else {
+      // Es cuadrada (normal)
+      texture.repeat.set(1, 1);
+      texture.offset.set(0, 0);
+    }
+    texture.needsUpdate = true;
+  }, [texture]);
+
   return (
     <mesh position={[0, yPos, 0]} rotation={[rotX, 0, 0]}>
       <circleGeometry args={[1.5, 64]} />
-      <meshBasicMaterial map={texture} toneMapped={false} />
+      <meshBasicMaterial map={texture} toneMapped={false} transparent />
     </mesh>
   );
 }
@@ -99,6 +122,7 @@ function LabelPlaceholder({ yPos, rotX }: { yPos: number; rotX: number }) {
 }
 
 export function ScratchableVinyl({
+  isLoading,
   isPlaying,
   coverUrl,
   baseRate,
@@ -230,6 +254,9 @@ export function ScratchableVinyl({
     };
 
     const onDown = (e: PointerEvent) => {
+      
+      if (isLoading) return; // ✅ No permitir scratch si está cargando
+
       const s = state.current;
       const ctrl = controls as any;
 
